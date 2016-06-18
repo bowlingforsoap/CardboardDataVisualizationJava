@@ -7,15 +7,15 @@ import com.google.gson.annotations.SerializedName;
  */
 public class Unit {
     @SerializedName("Name")
-    String name;
+    public String name;
     @SerializedName("Temp")
-    int temperature;
+    public int temperature;
     @SerializedName("Visco")
-    int viscosity;
+    public int viscosity;
     @SerializedName("Level")
-    int level;
+    public int level;
     @SerializedName("Stage")
-    String stage;
+    public String stage;
 
     @Override
     public String toString() {

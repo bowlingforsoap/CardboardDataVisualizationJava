@@ -14,6 +14,7 @@ import com.google.vr.sdk.base.Viewport;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.util.Arrays;
 
 import javax.microedition.khronos.egl.EGLConfig;
 
@@ -32,6 +33,12 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
     private Unit[] modelData = new Unit[6];
 
+    {
+        for (int i = 0; i < 6; i++) {
+            modelData[i] = new Unit();
+        }
+    }
+
     private static final String TAG = "CardboardRenderer";
 
     private final float NEAR = 1.0f;
@@ -49,10 +56,14 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      */
     private float[] mViewMatrix = new float[16];
 
-    /** Store the projection matrix. This is used to project the scene onto a 2D viewport. */
+    /**
+     * Store the projection matrix. This is used to project the scene onto a 2D viewport.
+     */
     private float[] mProjectionMatrix = new float[16];
 
-    /** Allocate storage for the final combined matrix. This will be passed into the shader program. */
+    /**
+     * Allocate storage for the final combined matrix. This will be passed into the shader program.
+     */
     private float[] mMVPMatrix = new float[16];
 
     /**
@@ -60,7 +71,9 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      */
     private float[] mLightModelMatrix = new float[16];
 
-    /** Store our model data in a float buffer. */
+    /**
+     * Store our model data in a float buffer.
+     */
     private final FloatBuffer mAgingVesselPositions;
     private final FloatBuffer mAgingVesselNormals;
 
@@ -70,57 +83,101 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     private final FloatBuffer mBrewkettlePositions;
     private final FloatBuffer mBrewkettleNormals;
 
-    /** This will be used to pass in the transformation matrix. */
+    /**
+     * This will be used to pass in the transformation matrix.
+     */
     private int mMVPMatrixHandle;
 
-    /** This will be used to pass in the modelview matrix. */
+    /**
+     * This will be used to pass in the modelview matrix.
+     */
     private int mMVMatrixHandle;
 
-    /** This will be used to pass in the light position. */
+    /**
+     * This will be used to pass in the light position.
+     */
     private int mLightPosHandle;
 
-    /** This will be used to pass in model position information. */
+    /**
+     * This will be used to pass in the (i.e. {@link AgingVessel}.)HIGHEST vertex.
+     */
+    private int mHighestYHandle;
+
+    /**
+     * This will be used to pass in the (i.e. {@link AgingVessel}.)LOWEST vertex.
+     */
+    private int mLowestYHandle;
+
+    /**
+     * This will be used to pass in the fill level of the {@link Unit}.
+     */
+    private int mFillLevel;
+
+    /**
+     * This will be used to pass in model position information.
+     */
     private int mPositionHandle;
 
-    /** This will be used to pass in model color information. */
+    /**
+     * This will be used to pass in model color information.
+     */
     private int mColorHandle;
 
-    /** This will be used to pass in model normal information. */
+    /**
+     * This will be used to pass in model normal information.
+     */
     private int mNormalHandle;
 
-    /** How many bytes per float. */
+    /**
+     * How many bytes per float.
+     */
     private final int mBytesPerFloat = 4;
 
-    /** Size of the position data in elements. */
+    /**
+     * Size of the position data in elements.
+     */
     private final int mPositionDataSize = 3;
 
-    /** Size of the color data in elements. */
+    /**
+     * Size of the color data in elements.
+     */
     private final int mColorDataSize = 4;
 
-    /** Size of the normal data in elements. */
+    /**
+     * Size of the normal data in elements.
+     */
     private final int mNormalDataSize = 3;
 
-    /** Used to hold a light centered on the origin in model space. We need a 4th coordinate so we can get translations to work when
-     *  we multiply this by our transformation matrices. */
-    private final float[] mLightPosInModelSpace = new float[] {0.0f, 0.0f, 0.0f, 1.0f};
+    /**
+     * Used to hold a light centered on the origin in model space. We need a 4th coordinate so we can get translations to work when
+     * we multiply this by our transformation matrices.
+     */
+    private final float[] mLightPosInModelSpace = new float[]{0.0f, 0.0f, 0.0f, 1.0f};
 
-    /** Used to hold the current position of the light in world space (after transformation via model matrix). */
+    /**
+     * Used to hold the current position of the light in world space (after transformation via model matrix).
+     */
     private final float[] mLightPosInWorldSpace = new float[4];
 
-    /** Used to hold the transformed position of the light in eye space (after transformation via modelview matrix) */
+    /**
+     * Used to hold the transformed position of the light in eye space (after transformation via modelview matrix)
+     */
     private final float[] mLightPosInEyeSpace = new float[4];
 
-    /** This is a handle to our per-vertex cube shading program. */
+    /**
+     * This is a handle to our per-vertex cube shading program.
+     */
     private int mPerVertexProgramHandle;
 
-    /** This is a handle to our light point program. */
+    /**
+     * This is a handle to our light point program.
+     */
     private int mPointProgramHandle;
 
     /**
      * Initialize the model data.
      */
-    public CardboardRenderer(Context appContext)
-    {
+    public CardboardRenderer(Context appContext) {
         // Store the application context for shader retrieval.
         this.appContext = appContext;
 
@@ -297,9 +354,18 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
     /**
      * Draws a model given by it's {@code positions}, {@code normals} FloatBuffer-s and a float array containing the color.
+     * Preserves the {@code lowestY} and {@code highestY} values.
+     * @param mEyeViewMatrix
+     * @param mEyeProjectionMatrix
+     * @param positions
+     * @param normals
+     * @param highestY
+     * @param lowestY
+     * @param fillLevel [0; 1]
+     * @param numVertices
+     * @param color
      */
-    private void drawModel(float[] mEyeViewMatrix, float[] mEyeProjectionMatrix, FloatBuffer positions, FloatBuffer normals, int numVertices, float[] color)
-    {
+    private void drawModel(float[] mEyeViewMatrix, float[] mEyeProjectionMatrix, FloatBuffer positions, FloatBuffer normals, float highestY, float lowestY, float fillLevel, int numVertices, float[] color) {
         // Check the given color array
         if (color == null || color.length != 4) {
             throw new RuntimeException("Bad color array format! Expecting 4 values..");
@@ -314,7 +380,6 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         GLES20.glEnableVertexAttribArray(mPositionHandle);
 
         // Pass in the color information
-//        GLES20.glVertexAttrib4f(mColorHandle, color[0], color[1], color[2], color[3]);
         GLES20.glVertexAttrib4f(mColorHandle, color[0], color[1], color[2], color[3]);
         GLES20.glDisableVertexAttribArray(mColorHandle);
 
@@ -343,16 +408,20 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         // Pass in the light position in eye space.
         GLES20.glUniform3f(mLightPosHandle, mLightPosInEyeSpace[0], mLightPosInEyeSpace[1], mLightPosInEyeSpace[2]);
 
+        // Pass in the highest and the lowest vertices
+
+        GLES20.glUniform1f(mHighestYHandle, highestY);
+        GLES20.glUniform1f(mLowestYHandle, lowestY);
+        GLES20.glUniform1f(mFillLevel, fillLevel);
+
         // Draw the cube.
-        //TODO: change to GL_TRIANGLES
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, numVertices);
     }
 
     /**
      * Draws a point representing the position of the light.
      */
-    private void drawLight(float[] mEyeViewMatrix, float[] mEyeProjectionMatrix)
-    {
+    private void drawLight(float[] mEyeViewMatrix, float[] mEyeProjectionMatrix) {
         final int pointMVPMatrixHandle = GLES20.glGetUniformLocation(mPointProgramHandle, "u_MVPMatrix");
         final int pointPositionHandle = GLES20.glGetAttribLocation(mPointProgramHandle, "a_Position");
 
@@ -373,16 +442,14 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     /**
      * Helper function to compile a shader.
      *
-     * @param shaderType The shader type.
+     * @param shaderType   The shader type.
      * @param shaderSource The shader source code.
      * @return An OpenGL handle to the shader.
      */
-    private int compileShader(final int shaderType, final String shaderSource)
-    {
+    private int compileShader(final int shaderType, final String shaderSource) {
         int shaderHandle = GLES20.glCreateShader(shaderType);
 
-        if (shaderHandle != 0)
-        {
+        if (shaderHandle != 0) {
             // Pass in the shader source.
             GLES20.glShaderSource(shaderHandle, shaderSource);
 
@@ -394,16 +461,14 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
             GLES20.glGetShaderiv(shaderHandle, GLES20.GL_COMPILE_STATUS, compileStatus, 0);
 
             // If the compilation failed, delete the shader.
-            if (compileStatus[0] == 0)
-            {
+            if (compileStatus[0] == 0) {
                 Log.e(TAG, "Error compiling shader: " + GLES20.glGetShaderInfoLog(shaderHandle));
                 GLES20.glDeleteShader(shaderHandle);
                 shaderHandle = 0;
             }
         }
 
-        if (shaderHandle == 0)
-        {
+        if (shaderHandle == 0) {
             throw new RuntimeException("Error creating shader.");
         }
 
@@ -413,17 +478,15 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     /**
      * Helper function to compile and link a program.
      *
-     * @param vertexShaderHandle An OpenGL handle to an already-compiled vertex shader.
+     * @param vertexShaderHandle   An OpenGL handle to an already-compiled vertex shader.
      * @param fragmentShaderHandle An OpenGL handle to an already-compiled fragment shader.
-     * @param attributes Attributes that need to be bound to the program.
+     * @param attributes           Attributes that need to be bound to the program.
      * @return An OpenGL handle to the program.
      */
-    private int createAndLinkProgram(final int vertexShaderHandle, final int fragmentShaderHandle, final String[] attributes)
-    {
+    private int createAndLinkProgram(final int vertexShaderHandle, final int fragmentShaderHandle, final String[] attributes) {
         int programHandle = GLES20.glCreateProgram();
 
-        if (programHandle != 0)
-        {
+        if (programHandle != 0) {
             // Bind the vertex shader to the program.
             GLES20.glAttachShader(programHandle, vertexShaderHandle);
 
@@ -431,11 +494,9 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
             GLES20.glAttachShader(programHandle, fragmentShaderHandle);
 
             // Bind attributes
-            if (attributes != null)
-            {
+            if (attributes != null) {
                 final int size = attributes.length;
-                for (int i = 0; i < size; i++)
-                {
+                for (int i = 0; i < size; i++) {
                     GLES20.glBindAttribLocation(programHandle, i, attributes[i]);
                 }
             }
@@ -448,16 +509,14 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
             GLES20.glGetProgramiv(programHandle, GLES20.GL_LINK_STATUS, linkStatus, 0);
 
             // If the link failed, delete the program.
-            if (linkStatus[0] == 0)
-            {
+            if (linkStatus[0] == 0) {
                 Log.e(TAG, "Error compiling program: " + GLES20.glGetProgramInfoLog(programHandle));
                 GLES20.glDeleteProgram(programHandle);
                 programHandle = 0;
             }
         }
 
-        if (programHandle == 0)
-        {
+        if (programHandle == 0) {
             throw new RuntimeException("Error creating program.");
         }
 
@@ -466,6 +525,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
     /**
      * Update current {@code modelData} with the new {@code modelData}.
+     *
      * @param newModelData
      */
     public void updateModelData(Unit[] newModelData) {
@@ -482,12 +542,13 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         long time = SystemClock.uptimeMillis() % 10000L;
         float angleInDegrees = (360.0f / 10000.0f) * ((int) time);
 
-
-
         // Set program handles for cube drawing.
         mMVPMatrixHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_MVPMatrix");
         mMVMatrixHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_MVMatrix");
         mLightPosHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_LightPos");
+        mHighestYHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_HighestY");
+        mLowestYHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_LowestY");
+        mFillLevel = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_FillLevel");
         mPositionHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Position");
         mColorHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Color");
         mNormalHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Normal");
@@ -495,7 +556,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         // Calculate position of the light. Rotate and then push into the distance.
         Matrix.setIdentityM(mLightModelMatrix, 0);
         Matrix.translateM(mLightModelMatrix, 0, 0.0f, 1.2f, -5.0f);
-        Matrix.rotateM(mLightModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
+        //Matrix.rotateM(mLightModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
         Matrix.translateM(mLightModelMatrix, 0, 0.0f, 0.0f, 2.0f);
 
         Matrix.multiplyMV(mLightPosInWorldSpace, 0, mLightModelMatrix, 0, mLightPosInModelSpace, 0);
@@ -549,7 +610,8 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
         // Set our per-vertex lighting program.
         GLES20.glUseProgram(mPerVertexProgramHandle);
-        drawModel(mEyeViewMatrix, mEyeProjectionMatrix, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.VERTICES, new float[] {1.0f, 0.0f, 0.0f, 1.0f});
+        // TODO: change fillLevel to a value from a real Unit
+        drawModel(mEyeViewMatrix, mEyeProjectionMatrix, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.HIGHEST[1], AgingVessel.LOWEST[1], 0.5f, AgingVessel.VERTICES, new float[]{1.0f, 0.0f, 0.0f, 1.0f});
 
         // Draw a point to indicate the light.
         GLES20.glUseProgram(mPointProgramHandle);
@@ -605,7 +667,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         final int fragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentShader);
 
         mPerVertexProgramHandle = createAndLinkProgram(vertexShaderHandle, fragmentShaderHandle,
-                new String[] {"a_Position",  "a_Color", "a_Normal"});
+                new String[]{"a_Position", "a_Color", "a_Normal"});
 
         // Define a simple shader program for our point.
         final String pointVertexShader = ShaderRetriever.getShaderCode(appContext, ShaderRetriever.LIGHT_VERTEX_SHADER);
@@ -614,7 +676,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         final int pointVertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, pointVertexShader);
         final int pointFragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, pointFragmentShader);
         mPointProgramHandle = createAndLinkProgram(pointVertexShaderHandle, pointFragmentShaderHandle,
-                new String[] {"a_Position"});
+                new String[]{"a_Position"});
     }
 
     @Override

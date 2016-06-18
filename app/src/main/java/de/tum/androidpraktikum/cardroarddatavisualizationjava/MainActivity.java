@@ -36,22 +36,18 @@ import javax.microedition.khronos.opengles.GL10;
 import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.Unit;
 
 public class MainActivity extends GvrActivity {
+    private CardboardRenderer cardboardRenderer;
     /**
      * An object to retrieve JSON data from the the website.
      */
     private DataRetriever dataRetriever;
-    /**
-     * Latest JSON data entry.
-     */
-    private String latestRow;
 
     //TODO: remove title bar
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        //TODO: delete these comments
-        //mGLSurfaceView = new GLSurfaceView(this);
+        // Setup GvrView
         setContentView(R.layout.common_ui);
         GvrView gvrView = (GvrView) findViewById(R.id.gvr_view);
         gvrView.setEGLConfigChooser(8, 8, 8, 8, 16, 8);
@@ -65,7 +61,27 @@ public class MainActivity extends GvrActivity {
                     }
                 });
 
-        // not relevant at the moment
+        // check if system supports OpenGL ES 2.0
+        final ActivityManager activityManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        final ConfigurationInfo configurationInfo = activityManager.getDeviceConfigurationInfo();
+        final boolean supportsEs2 = configurationInfo.reqGlEsVersion >= 0x20000;
+
+        if (supportsEs2) {
+            // Request an OpenGL ES 2.0 compatible context.
+            gvrView.setEGLContextClientVersion(2);
+
+            // Set the renderer to our renderer.
+            cardboardRenderer = new CardboardRenderer(this.getApplicationContext());
+            gvrView.setRenderer(cardboardRenderer);
+        } else {
+            // This is where you could create an OpenGL ES 1.x compatible
+            // renderer if you wanted to support both ES 1 and ES 2.
+        }
+
+        setGvrView(gvrView);
+
+        // TODO: schedule this!
+        // Retrieve data from server
         //
         dataRetriever = this.new DataRetriever();
 
@@ -77,26 +93,6 @@ public class MainActivity extends GvrActivity {
         } else {
             System.out.println("No network connection available.");
         }
-        //
-        // not relevant at the moment
-
-        // check if system supports OpenGL ES 2.0
-        final ActivityManager activityManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-        final ConfigurationInfo configurationInfo = activityManager.getDeviceConfigurationInfo();
-        final boolean supportsEs2 = configurationInfo.reqGlEsVersion >= 0x20000;
-
-        if (supportsEs2) {
-            // Request an OpenGL ES 2.0 compatible context.
-            gvrView.setEGLContextClientVersion(2);
-
-            // Set the renderer to our renderer.
-            gvrView.setRenderer(new CardboardRenderer(this.getApplicationContext()));
-        } else {
-            // This is where you could create an OpenGL ES 1.x compatible
-            // renderer if you wanted to support both ES 1 and ES 2.
-        }
-
-        setGvrView(gvrView);
     }
 
     @Override
@@ -182,7 +178,8 @@ public class MainActivity extends GvrActivity {
         @Override
         protected void onPostExecute(String json) {
             super.onPostExecute(json);
-            latestRow = json;
+
+            // Data expected in as [ { 'id' : ..., 'Unit1' : { ... }, ..., 'UnitN' : { ... } } ]
             JSONArray ja = null;
             try {
                 ja = new JSONArray(json);
@@ -193,6 +190,7 @@ public class MainActivity extends GvrActivity {
                 modelData[3] = new Gson().fromJson(ja.getJSONObject(0).getJSONObject("Unit4").toString(), Unit.class);
                 modelData[4] = new Gson().fromJson(ja.getJSONObject(0).getJSONObject("Unit5").toString(), Unit.class);
                 modelData[5] = new Gson().fromJson(ja.getJSONObject(0).getJSONObject("Unit6").toString(), Unit.class);
+                cardboardRenderer.updateModelData(modelData);
             } catch (JSONException e) {
                 e.printStackTrace();
             }
