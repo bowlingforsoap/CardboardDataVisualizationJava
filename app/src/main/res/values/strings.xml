@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Cardroard Data Visualization Java</string>
+    <string name="get_last_row">http://www.felix.gullamolar.com/latestRow</string>
 </resources>
