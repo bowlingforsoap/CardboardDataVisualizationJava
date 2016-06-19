@@ -83,7 +83,7 @@ public class MainActivity extends GvrActivity {
         // TODO: schedule this!
         // Retrieve data from server
         //
-        dataRetriever = this.new DataRetriever();
+/*        dataRetriever = this.new DataRetriever();
 
         String stringUrl = this.getResources().getString(R.string.get_last_row);
         ConnectivityManager connMgr = (ConnectivityManager) this.getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -93,6 +93,7 @@ public class MainActivity extends GvrActivity {
         } else {
             System.out.println("No network connection available.");
         }
+        */
     }
 
     @Override
@@ -134,7 +135,6 @@ public class MainActivity extends GvrActivity {
                 // finished using it.
             } catch (Exception e) {
                 // TODO: change; and check all the exceptions in this class
-                Log.e("cyka blyat", e.getMessage());
                 System.err.println(e.getMessage());
                 e.printStackTrace();
                 return "T__T";

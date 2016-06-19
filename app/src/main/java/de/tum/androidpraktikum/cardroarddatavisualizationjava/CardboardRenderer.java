@@ -2,6 +2,7 @@ package de.tum.androidpraktikum.cardroarddatavisualizationjava;
 
 import android.content.Context;
 import android.opengl.GLES20;
+import android.opengl.GLU;
 import android.opengl.Matrix;
 import android.os.SystemClock;
 import android.util.Log;
@@ -30,25 +31,35 @@ import de.tum.androidpraktikum.cardroarddatavisualizationjava.shaders.ShaderRetr
  */
 public class CardboardRenderer implements GvrView.StereoRenderer {
     private final Context appContext;
+    private static final int NUM_OF_MODELS = 6;
 
-    private Unit[] modelData = new Unit[6];
+    private Unit[] modelData = new Unit[NUM_OF_MODELS];
 
     {
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < NUM_OF_MODELS; i++) {
             modelData[i] = new Unit();
         }
     }
 
     private static final String TAG = "CardboardRenderer";
 
+    // Center of screen to be re-projected in model space.
+    float[] center = new float[3];
+
+    /**
+     * Near clipping plane.
+     */
     private final float NEAR = 1.0f;
-    private float FAR = 10.0f;
+    /**
+     * Far clipping plane.
+     */
+    private float FAR = 30.0f;
 
     /**
      * Store the model matrix. This matrix is used to move models from object space (where each model can be thought
      * of being located at the center of the universe) to world space.
      */
-    private float[] mModelMatrix = new float[16];
+    private float[][] mModelMatrix = new float[NUM_OF_MODELS][16];
 
     /**
      * Store the view matrix. This can be thought of as our camera. This matrix transforms world space to eye space;
@@ -209,11 +220,137 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         mBrightBeerVesselNormals.put(BrightBeerVessel.NORMALS).position(0);
     }
 
-    /*@Override
-    public void onSurfaceCreated(GL10 glUnused, EGLConfig config)
-    {
+    @Override
+    public void onNewFrame(HeadTransform headTransform) {
+        // Do a complete rotation every 10 seconds.
+        long time = SystemClock.uptimeMillis() % 10000L;
+        float angleInDegrees = (360.0f / 10000.0f) * ((int) time);
+
+        // Set program handles for cube drawing.
+        mMVPMatrixHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_MVPMatrix");
+        mMVMatrixHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_MVMatrix");
+        mLightPosHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_LightPos");
+        mHighestYHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_HighestY");
+        mLowestYHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_LowestY");
+        mFillLevel = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_FillLevel");
+        mPositionHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Position");
+        mColorHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Color");
+        mNormalHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Normal");
+
+        // Calculate position of the light. Rotate and then push into the distance.
+        Matrix.setIdentityM(mLightModelMatrix, 0);
+        Matrix.translateM(mLightModelMatrix, 0, 0.0f, 0.0f, -20.0f);
+        //Matrix.rotateM(mLightModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(mLightModelMatrix, 0, 0.0f, 0.0f, 2.0f);
+
+        Matrix.multiplyMV(mLightPosInWorldSpace, 0, mLightModelMatrix, 0, mLightPosInModelSpace, 0);
+
+        // Draw some cubes.
+
+        // Initiate view matrices for all models with an identity.
+        for (int i = 0; i < NUM_OF_MODELS; i++) {
+            Matrix.setIdentityM(mModelMatrix[i], 0);
+        }
+
+        // Unit 1
+        Matrix.translateM(mModelMatrix[0], 0, 0.0f, -10.0f, -27.0f);
+
+        // Unit 2
+        Matrix.rotateM(mModelMatrix[1], 0, 30, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(mModelMatrix[1], 0, 0.0f, -10.0f, -27.0f);
+
+        // Unit 3
+        Matrix.rotateM(mModelMatrix[2], 0, -30, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(mModelMatrix[2], 0, 0.0f, -10.0f, -27.0f);
+
+        // Unit 4
+        Matrix.rotateM(mModelMatrix[3], 0, 60, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(mModelMatrix[3], 0, 0.0f, -10.0f, -27.0f);
+
+        // Unit 5
+        Matrix.rotateM(mModelMatrix[4], 0, -60, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(mModelMatrix[4], 0, 0.0f, -10.0f, -27.0f);
+
+        // Unit 6
+        Matrix.rotateM(mModelMatrix[5], 0, 90, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(mModelMatrix[5], 0, 0.0f, -10.0f, -27.0f);
+
+        // Rotate the models.
+        /*for (int i = 0; i < NUM_OF_MODELS; i++) {
+            Matrix.rotateM(mModelMatrix[i], 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
+        }*/
+    }
+
+    @Override
+    public void onDrawEye(Eye eye) {
+        GLES20.glEnable(GLES20.GL_DEPTH_TEST);
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
+
+        // Get eye matrices from the Eye object
+        float[] mEyeViewMatrix = eye.getEyeView();
+        float[] mEyeProjectionMatrix = eye.getPerspective(NEAR, FAR);
+
+        // Apply the eye transformation to the camera.
+        Matrix.multiplyMM(mEyeViewMatrix, 0, mEyeViewMatrix, 0, mViewMatrix, 0);
+        Matrix.multiplyMV(mLightPosInEyeSpace, 0, mEyeViewMatrix, 0, mLightPosInWorldSpace, 0);
+
+        // Get screen center coords.
+        Viewport viewport = eye.getViewport();
+        viewport.getClass();
+
+        //float[] invProjection = new float[16];
+        //float[] invModelView = new float[16];
+        //Matrix.invertM(invProjection, 0, mEyeProjectionMatrix, 0);
+
+        //GLU.gluUnProject(viewport.width / 2, viewport.height / 2, 0, mEyeViewMatrix, 0, mEyeProjectionMatrix, 0, new int[] {viewport.x, viewport.y, viewport.width, viewport.height}, 0, center, 0);
+
+        // Set our per-vertex lighting program.
+        GLES20.glUseProgram(mPerVertexProgramHandle);
+
+        // TODO: change fillLevel to a value from a real Unit
+        // TODO: fix filLevel rendering issue
+        // Unit 1
+        drawModel(0, mEyeViewMatrix, mEyeProjectionMatrix, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.HIGHEST[1], AgingVessel.LOWEST[1], 0.5f, AgingVessel.VERTICES, new float[]{1.0f, 0.0f, 0.0f, 1.0f});
+
+        // Unit 2
+        drawModel(1, mEyeViewMatrix, mEyeProjectionMatrix, mBrewkettlePositions, mBrewkettleNormals, Brewkettle.HIGHEST[1], Brewkettle.LOWEST[1], 0.2f, Brewkettle.VERTICES, new float[]{.0f, .7f, 0.f, 1.0f});
+
+        // Unit 3
+        drawModel(2, mEyeViewMatrix, mEyeProjectionMatrix, mBrightBeerVesselPositions, mBrightBeerVesselNormals, BrightBeerVessel.HIGHEST[1], BrightBeerVessel.LOWEST[1], 0.7f, BrightBeerVessel.VERTICES, new float[]{.5f, .5f, 0.f, 1.0f});
+
+        // Unit 4
+        drawModel(3, mEyeViewMatrix, mEyeProjectionMatrix, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.HIGHEST[1], AgingVessel.LOWEST[1], 0.f, AgingVessel.VERTICES, new float[]{1.0f, 1.0f, 0.3f, 1.0f});
+
+        // Unit 5
+        drawModel(4, mEyeViewMatrix, mEyeProjectionMatrix, mBrewkettlePositions, mBrewkettleNormals, Brewkettle.HIGHEST[1], Brewkettle.LOWEST[1], 0.43f, Brewkettle.VERTICES, new float[]{.5f, .5f, 1.f, 1.0f});
+
+        // Unit 6
+        drawModel(5, mEyeViewMatrix, mEyeProjectionMatrix, mBrightBeerVesselPositions, mBrightBeerVesselNormals, BrightBeerVessel.HIGHEST[1], BrightBeerVessel.LOWEST[1], 1f, BrightBeerVessel.VERTICES, new float[]{.5f, .5f, 1.f, 1.0f});
+
+        // Draw a point to indicate the light.
+        GLES20.glUseProgram(mPointProgramHandle);
+        drawLight(mEyeViewMatrix, mEyeProjectionMatrix);
+    }
+
+    @Override
+    public void onFinishFrame(Viewport viewport) {
+    }
+
+    @Override
+    /**
+     * i - height
+     * i1 - width
+     */
+    public void onSurfaceChanged(int i, int i1) {
+        Log.i(TAG, "onSurfaceChanged: i = " + i + "; i1 = " + i1);
+    }
+
+    @Override
+    public void onSurfaceCreated(EGLConfig eglConfig) {
+        Log.i(TAG, "onSurfaceCreated");
         // Set the background clear color to black.
         GLES20.glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+
 
         // Use culling to remove back faces.
         GLES20.glEnable(GLES20.GL_CULL_FACE);
@@ -248,7 +385,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         final int fragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentShader);
 
         mPerVertexProgramHandle = createAndLinkProgram(vertexShaderHandle, fragmentShaderHandle,
-                new String[] {"a_Position",  "a_Color", "a_Normal"});
+                new String[]{"a_Position", "a_Color", "a_Normal"});
 
         // Define a simple shader program for our point.
         final String pointVertexShader = ShaderRetriever.getShaderCode(appContext, ShaderRetriever.LIGHT_VERTEX_SHADER);
@@ -257,115 +394,30 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         final int pointVertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, pointVertexShader);
         final int pointFragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, pointFragmentShader);
         mPointProgramHandle = createAndLinkProgram(pointVertexShaderHandle, pointFragmentShaderHandle,
-                new String[] {"a_Position"});
-    }*/
+                new String[]{"a_Position"});
+    }
 
-    /*@Override
-    // is done in onDrawEye?
-    public void onSurfaceChanged(GL10 glUnused, int width, int height)
-    {
-        // Set the OpenGL viewport to the same size as the surface.
-        GLES20.glViewport(0, 0, width, height);
+    @Override
+    public void onRendererShutdown() {
+        Log.i(TAG, "onRendererShutdown");
+    }
 
-        // Create a new perspective projection matrix. The height will stay the same
-        // while the width will vary as per aspect ratio.
-        final float ratio = (float) width / height;
-        final float left = -ratio;
-        final float right = ratio;
-        final float bottom = -1.0f;
-        final float top = 1.0f;
-        final float NEAR = 1.0f;
-        final float FAR = 10.0f;
-
-        Matrix.frustumM(mProjectionMatrix, 0, left, right, bottom, top, NEAR, FAR);
-    }*/
-
-    /*@Override
-    public void onDrawFrame(GL10 glUnused)
-    {
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
-
-        // Do a complete rotation every 10 seconds.
-        long time = SystemClock.uptimeMillis() % 10000L;
-        float angleInDegrees = (360.0f / 10000.0f) * ((int) time);
-
-        // Set our per-vertex lighting program.
-        GLES20.glUseProgram(mPerVertexProgramHandle);
-
-        // Set program handles for cube drawing.
-        mMVPMatrixHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_MVPMatrix");
-        mMVMatrixHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_MVMatrix");
-        mLightPosHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_LightPos");
-        mPositionHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Position");
-        mColorHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Color");
-        mNormalHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Normal");
-
-        // Lights
-        //
-
-        // Calculate position of the light. Rotate and then push into the distance.
-        Matrix.setIdentityM(mLightModelMatrix, 0);
-        Matrix.translateM(mLightModelMatrix, 0, 0.0f, 1.2f, -5.0f);
-        Matrix.rotateM(mLightModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mLightModelMatrix, 0, 0.0f, 0.0f, 2.0f);
-
-        Matrix.multiplyMV(mLightPosInWorldSpace, 0, mLightModelMatrix, 0, mLightPosInModelSpace, 0);
-        // in onDrawEye
-        Matrix.multiplyMV(mLightPosInEyeSpace, 0, mViewMatrix, 0, mLightPosInWorldSpace, 0);
-
-        // Draw some cubes.
-        Matrix.setIdentityM(mModelMatrix, 0);
-        Matrix.translateM(mModelMatrix, 0, 0.0f, 0.0f, -7.0f);
-        Matrix.rotateM(mModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
-        // in onDrawEye
-        drawModel(eye, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.VERTICES, new float[] {1.0f, 0.0f, 0.0f, 1.0f});
-
-        Matrix.setIdentityM(mModelMatrix, 0);
-        Matrix.rotateM(mModelMatrix, 0, 30, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix, 0, 0.0f, 0.0f, -7.0f);
-        Matrix.rotateM(mModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
-        // in onDrawEye
-        drawModel(eye, mBrightBeerVesselPositions, mBrightBeerVesselNormals, BrightBeerVessel.VERTICES, new float[] {0.0f, 1.0f, 0.0f, 1.0f});
-
-        Matrix.setIdentityM(mModelMatrix, 0);
-        Matrix.rotateM(mModelMatrix, 0, -30, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix, 0, 0.0f, 0.0f, -7.0f);
-        Matrix.rotateM(mModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
-        // in onDrawEye
-        drawModel(eye, mBrewkettlePositions, mBrewkettleNormals, Brewkettle.VERTICES, new float[] {0.0f, 0.0f, 1.0f, 1.0f});
-
-        Matrix.setIdentityM(mModelMatrix, 0);
-        Matrix.rotateM(mModelMatrix, 0, 60, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix, 0, 0.0f, 0.0f, -7.0f);
-        // in onDrawEye
-        drawModel(eye, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.VERTICES, new float[] {1.0f, 0.0f, 0.0f, 1.0f});
-
-        Matrix.setIdentityM(mModelMatrix, 0);
-        Matrix.rotateM(mModelMatrix, 0, -60, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix, 0, 0.0f, 0.0f, -7.0f);
-        // in onDrawEye
-        drawModel(eye, mBrightBeerVesselPositions, mBrightBeerVesselNormals, BrightBeerVessel.VERTICES, new float[] {0.0f, 1.0f, 0.0f, 1.0f});
-
-        // in onDrawEye
-//      Draw a point to indicate the light.
-        GLES20.glUseProgram(mPointProgramHandle);
-        drawLight();
-    }*/
 
     /**
      * Draws a model given by it's {@code positions}, {@code normals} FloatBuffer-s and a float array containing the color.
      * Preserves the {@code lowestY} and {@code highestY} values.
+     * @param modelNum the number of model to render (aka the number of the model matrix to apply)
      * @param mEyeViewMatrix
      * @param mEyeProjectionMatrix
      * @param positions
      * @param normals
      * @param highestY
      * @param lowestY
-     * @param fillLevel [0; 1]
+     * @param fillLevel            [0; 1]
      * @param numVertices
      * @param color
      */
-    private void drawModel(float[] mEyeViewMatrix, float[] mEyeProjectionMatrix, FloatBuffer positions, FloatBuffer normals, float highestY, float lowestY, float fillLevel, int numVertices, float[] color) {
+    private void drawModel(int modelNum, float[] mEyeViewMatrix, float[] mEyeProjectionMatrix, FloatBuffer positions, FloatBuffer normals, float highestY, float lowestY, float fillLevel, int numVertices, float[] color) {
         // Check the given color array
         if (color == null || color.length != 4) {
             throw new RuntimeException("Bad color array format! Expecting 4 values..");
@@ -393,7 +445,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         //
         // This multiplies the view matrix by the model matrix, and stores the result in the MVP matrix
         // (which currently contains model * view).
-        Matrix.multiplyMM(mMVPMatrix, 0, mEyeViewMatrix, 0, mModelMatrix, 0);
+        Matrix.multiplyMM(mMVPMatrix, 0, mEyeViewMatrix, 0, mModelMatrix[modelNum], 0);
 
         // Pass in the modelview matrix.
         GLES20.glUniformMatrix4fv(mMVMatrixHandle, 1, false, mMVPMatrix, 0);
@@ -534,153 +586,5 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         }
 
         modelData = newModelData;
-    }
-
-    @Override
-    public void onNewFrame(HeadTransform headTransform) {
-        // Do a complete rotation every 10 seconds.
-        long time = SystemClock.uptimeMillis() % 10000L;
-        float angleInDegrees = (360.0f / 10000.0f) * ((int) time);
-
-        // Set program handles for cube drawing.
-        mMVPMatrixHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_MVPMatrix");
-        mMVMatrixHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_MVMatrix");
-        mLightPosHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_LightPos");
-        mHighestYHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_HighestY");
-        mLowestYHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_LowestY");
-        mFillLevel = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_FillLevel");
-        mPositionHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Position");
-        mColorHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Color");
-        mNormalHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Normal");
-
-        // Calculate position of the light. Rotate and then push into the distance.
-        Matrix.setIdentityM(mLightModelMatrix, 0);
-        Matrix.translateM(mLightModelMatrix, 0, 0.0f, 1.2f, -5.0f);
-        //Matrix.rotateM(mLightModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mLightModelMatrix, 0, 0.0f, 0.0f, 2.0f);
-
-        Matrix.multiplyMV(mLightPosInWorldSpace, 0, mLightModelMatrix, 0, mLightPosInModelSpace, 0);
-
-        // Draw some cubes.
-        Matrix.setIdentityM(mModelMatrix, 0);
-        Matrix.translateM(mModelMatrix, 0, 0.0f, 0.0f, -7.0f);
-        Matrix.rotateM(mModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
-
-        /*Matrix.setIdentityM(mModelMatrix, 0);
-        Matrix.rotateM(mModelMatrix, 0, 30, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix, 0, 0.0f, 0.0f, -7.0f);
-        Matrix.rotateM(mModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
-        // in onDrawEye
-        drawModel(mBrightBeerVesselPositions, mBrightBeerVesselNormals, BrightBeerVessel.VERTICES, new float[] {0.0f, 1.0f, 0.0f, 1.0f});
-
-        Matrix.setIdentityM(mModelMatrix, 0);
-        Matrix.rotateM(mModelMatrix, 0, -30, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix, 0, 0.0f, 0.0f, -7.0f);
-        Matrix.rotateM(mModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
-        // in onDrawEye
-        drawModel(mBrewkettlePositions, mBrewkettleNormals, Brewkettle.VERTICES, new float[] {0.0f, 0.0f, 1.0f, 1.0f});
-
-        Matrix.setIdentityM(mModelMatrix, 0);
-        Matrix.rotateM(mModelMatrix, 0, 60, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix, 0, 0.0f, 0.0f, -7.0f);
-        // in onDrawEye
-        drawModel(mAgingVesselPositions, mAgingVesselNormals, AgingVessel.VERTICES, new float[] {1.0f, 0.0f, 0.0f, 1.0f});
-
-        Matrix.setIdentityM(mModelMatrix, 0);
-        Matrix.rotateM(mModelMatrix, 0, -60, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix, 0, 0.0f, 0.0f, -7.0f);
-        // in onDrawEye
-        drawModel(mBrightBeerVesselPositions, mBrightBeerVesselNormals, BrightBeerVessel.VERTICES, new float[] {0.0f, 1.0f, 0.0f, 1.0f});
-*/
-
-    }
-
-    @Override
-    public void onDrawEye(Eye eye) {
-        GLES20.glEnable(GLES20.GL_DEPTH_TEST);
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
-
-        // Get eye matrices from the Eye object
-        float[] mEyeViewMatrix = eye.getEyeView();
-        float[] mEyeProjectionMatrix = eye.getPerspective(NEAR, FAR);
-
-        // Apply the eye transformation to the camera.
-        Matrix.multiplyMM(mEyeViewMatrix, 0, mEyeViewMatrix, 0, mViewMatrix, 0);
-        Matrix.multiplyMV(mLightPosInEyeSpace, 0, mEyeViewMatrix, 0, mLightPosInWorldSpace, 0);
-
-        // Set our per-vertex lighting program.
-        GLES20.glUseProgram(mPerVertexProgramHandle);
-        // TODO: change fillLevel to a value from a real Unit
-        drawModel(mEyeViewMatrix, mEyeProjectionMatrix, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.HIGHEST[1], AgingVessel.LOWEST[1], 0.5f, AgingVessel.VERTICES, new float[]{1.0f, 0.0f, 0.0f, 1.0f});
-
-        // Draw a point to indicate the light.
-        GLES20.glUseProgram(mPointProgramHandle);
-        drawLight(mEyeViewMatrix, mEyeProjectionMatrix);
-    }
-
-    @Override
-    public void onFinishFrame(Viewport viewport) {
-    }
-
-    @Override
-    public void onSurfaceChanged(int i, int i1) {
-        Log.i(TAG, "onSurfaceChanged");
-    }
-
-    @Override
-    public void onSurfaceCreated(EGLConfig eglConfig) {
-        Log.i(TAG, "onSurfaceCreated");
-        // Set the background clear color to black.
-        GLES20.glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-
-
-        // Use culling to remove back faces.
-        GLES20.glEnable(GLES20.GL_CULL_FACE);
-
-        // Enable depth testing
-        GLES20.glEnable(GLES20.GL_DEPTH_TEST);
-
-        // Position the eye in front of the origin.
-        final float eyeX = 0.0f;
-        final float eyeY = 0.0f;
-        final float eyeZ = -0.5f;
-
-        // We are looking toward the distance
-        final float lookX = 0.0f;
-        final float lookY = 0.0f;
-        final float lookZ = -5.0f;
-
-        // Set our up vector. This is where our head would be pointing were we holding the camera.
-        final float upX = 0.0f;
-        final float upY = 1.0f;
-        final float upZ = 0.0f;
-
-        // Set the view matrix. This matrix can be said to represent the camera position.
-        // NOTE: In OpenGL 1, a ModelView matrix is used, which is a combination of a model and
-        // view matrix. In OpenGL 2, we can keep track of these matrices separately if we choose.
-        Matrix.setLookAtM(mViewMatrix, 0, eyeX, eyeY, eyeZ, lookX, lookY, lookZ, upX, upY, upZ);
-
-        final String vertexShader = ShaderRetriever.getShaderCode(appContext, ShaderRetriever.VERTEX_SHADER);
-        final String fragmentShader = ShaderRetriever.getShaderCode(appContext, ShaderRetriever.FRAGMENT_SHADER);
-
-        final int vertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, vertexShader);
-        final int fragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentShader);
-
-        mPerVertexProgramHandle = createAndLinkProgram(vertexShaderHandle, fragmentShaderHandle,
-                new String[]{"a_Position", "a_Color", "a_Normal"});
-
-        // Define a simple shader program for our point.
-        final String pointVertexShader = ShaderRetriever.getShaderCode(appContext, ShaderRetriever.LIGHT_VERTEX_SHADER);
-        final String pointFragmentShader = ShaderRetriever.getShaderCode(appContext, ShaderRetriever.LIGHT_FRAGMENT_SHADER);
-
-        final int pointVertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, pointVertexShader);
-        final int pointFragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, pointFragmentShader);
-        mPointProgramHandle = createAndLinkProgram(pointVertexShaderHandle, pointFragmentShaderHandle,
-                new String[]{"a_Position"});
-    }
-
-    @Override
-    public void onRendererShutdown() {
-        Log.i(TAG, "onRendererShutdown");
     }
 }
