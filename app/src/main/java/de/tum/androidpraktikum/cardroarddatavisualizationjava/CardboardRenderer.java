@@ -44,7 +44,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     private static final String TAG = "CardboardRenderer";
 
     // Center of screen to be re-projected in model space.
-    float[] center = new float[3];
+    private float[] center = new float[3];
 
     /**
      * Near clipping plane.
@@ -302,7 +302,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         //float[] invModelView = new float[16];
         //Matrix.invertM(invProjection, 0, mEyeProjectionMatrix, 0);
 
-        //GLU.gluUnProject(viewport.width / 2, viewport.height / 2, 0, mEyeViewMatrix, 0, mEyeProjectionMatrix, 0, new int[] {viewport.x, viewport.y, viewport.width, viewport.height}, 0, center, 0);
+        GLU.gluUnProject(viewport.width / 2, viewport.height / 2, 0, mEyeViewMatrix, 0, mEyeProjectionMatrix, 0, new int[] {viewport.x, viewport.y, viewport.width, viewport.height}, 0, center, 0);
 
         // Set our per-vertex lighting program.
         GLES20.glUseProgram(mPerVertexProgramHandle);
