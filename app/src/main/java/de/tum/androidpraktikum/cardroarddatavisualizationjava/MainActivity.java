@@ -29,6 +29,9 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.TimeUnit;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
@@ -36,11 +39,20 @@ import javax.microedition.khronos.opengles.GL10;
 import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.Unit;
 
 public class MainActivity extends GvrActivity {
+    private static final String TAG = "MainActivity";
+    // TODO: change to 10000
+    /**
+     * Determines how often the data is fetched by the {@link DataRetriever};
+     */
+    public static final int DATA_FETCH_INTERVAL = 5000;
+    /**
+     * StereoRenderer used in the main activity.
+     */
     private CardboardRenderer cardboardRenderer;
     /**
-     * An object to retrieve JSON data from the the website.
+     * This timer is used to schedule JSON data retrieval.
      */
-    private DataRetriever dataRetriever;
+    private Timer timer;
 
     //TODO: remove title bar
     @Override
@@ -83,17 +95,22 @@ public class MainActivity extends GvrActivity {
         // TODO: schedule this!
         // Retrieve data from server
         //
-/*        dataRetriever = this.new DataRetriever();
-
-        String stringUrl = this.getResources().getString(R.string.get_last_row);
-        ConnectivityManager connMgr = (ConnectivityManager) this.getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo networkInfo = connMgr.getActiveNetworkInfo();
-        if (networkInfo != null && networkInfo.isConnected()) {
-            dataRetriever.execute(stringUrl);
-        } else {
-            System.out.println("No network connection available.");
-        }
-        */
+        timer = new Timer();
+        final Context appContext = this.getApplicationContext();
+        // Schedule a TimerTask with 0 delay every 10 seconds.
+        timer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                String stringUrl = appContext.getResources().getString(R.string.get_last_row);
+                ConnectivityManager connMgr = (ConnectivityManager) appContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+                NetworkInfo networkInfo = connMgr.getActiveNetworkInfo();
+                if (networkInfo != null && networkInfo.isConnected()) {
+                    new DataRetriever().execute(stringUrl);
+                } else {
+                    Log.i(TAG,"No network connection available.");
+                }
+            }
+        }, 0, DATA_FETCH_INTERVAL);
     }
 
     @Override
@@ -109,6 +126,7 @@ public class MainActivity extends GvrActivity {
     private class DataRetriever extends AsyncTask<String, Void, String> {
 
         private static final String DEBUG_TAG = "DEBUG";
+        private Unit[] modelData = new Unit[CardboardRenderer.NUM_OF_MODELS];
 
         private String downloadUrl(String myurl) throws IOException {
             InputStream is = null;
@@ -183,7 +201,6 @@ public class MainActivity extends GvrActivity {
             JSONArray ja = null;
             try {
                 ja = new JSONArray(json);
-                Unit[] modelData = new Unit[6];
                 modelData[0] = new Gson().fromJson(ja.getJSONObject(0).getJSONObject("Unit1").toString(), Unit.class);
                 modelData[1] = new Gson().fromJson(ja.getJSONObject(0).getJSONObject("Unit2").toString(), Unit.class);
                 modelData[2] = new Gson().fromJson(ja.getJSONObject(0).getJSONObject("Unit3").toString(), Unit.class);

@@ -13,7 +13,7 @@ public class Unit {
     @SerializedName("Visco")
     public int viscosity;
     @SerializedName("Level")
-    public int level;
+    public float level;
     @SerializedName("Stage")
     public String stage;
 

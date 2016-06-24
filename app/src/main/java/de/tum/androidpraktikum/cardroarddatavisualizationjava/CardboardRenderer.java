@@ -10,6 +10,7 @@ import android.util.Log;
 import com.google.vr.sdk.base.Eye;
 import com.google.vr.sdk.base.GvrView;
 import com.google.vr.sdk.base.HeadTransform;
+import com.google.vr.sdk.base.PermissionUtils;
 import com.google.vr.sdk.base.Viewport;
 
 import java.nio.ByteBuffer;
@@ -30,21 +31,39 @@ import de.tum.androidpraktikum.cardroarddatavisualizationjava.shaders.ShaderRetr
  * renderers -- the static class GLES20 is used instead.
  */
 public class CardboardRenderer implements GvrView.StereoRenderer {
+    /**
+     * Determines the number of interpolated colors (for the fill level) to be shown between the two consequently fetched colors.
+     */
+    public static final int COLOR_STEPS_PER_INTERVAL = 10;
+    /**
+     * The current step in interpolating the color [1, COLOR_STEPS_PER_INTERVAL].
+     */
+    private int[] stepNum = new int[NUM_OF_MODELS];
+    /**
+     * The new color retrieved per model.
+     */
+    private float[][] newColor = new float[NUM_OF_MODELS][4];
+    /**
+     * The color before the latest retrieval per model.
+     */
+    private float[][] currColor = new float[NUM_OF_MODELS][4];
+
     private final Context appContext;
-    private static final int NUM_OF_MODELS = 6;
+    public static final int NUM_OF_MODELS = 6;
 
     private Unit[] modelData = new Unit[NUM_OF_MODELS];
 
     {
         for (int i = 0; i < NUM_OF_MODELS; i++) {
             modelData[i] = new Unit();
+            stepNum[i] = 1;
         }
     }
 
     private static final String TAG = "CardboardRenderer";
 
     // Center of screen to be re-projected in model space.
-    private float[] center = new float[3];
+    private float[] center = new float[4];
 
     /**
      * Near clipping plane.
@@ -66,11 +85,6 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      * it positions things relative to our eye.
      */
     private float[] mViewMatrix = new float[16];
-
-    /**
-     * Store the projection matrix. This is used to project the scene onto a 2D viewport.
-     */
-    private float[] mProjectionMatrix = new float[16];
 
     /**
      * Allocate storage for the final combined matrix. This will be passed into the shader program.
@@ -221,8 +235,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     }
 
     @Override
-    public void onNewFrame(HeadTransform headTransform) {
-        // Do a complete rotation every 10 seconds.
+    public void onNewFrame(HeadTransform headTransform) {// Do a complete rotation every 10 seconds.
         long time = SystemClock.uptimeMillis() % 10000L;
         float angleInDegrees = (360.0f / 10000.0f) * ((int) time);
 
@@ -276,9 +289,9 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         Matrix.translateM(mModelMatrix[5], 0, 0.0f, -10.0f, -27.0f);
 
         // Rotate the models.
-        /*for (int i = 0; i < NUM_OF_MODELS; i++) {
+        for (int i = 0; i < NUM_OF_MODELS; i++) {
             Matrix.rotateM(mModelMatrix[i], 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
-        }*/
+        }
     }
 
     @Override
@@ -294,7 +307,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         Matrix.multiplyMM(mEyeViewMatrix, 0, mEyeViewMatrix, 0, mViewMatrix, 0);
         Matrix.multiplyMV(mLightPosInEyeSpace, 0, mEyeViewMatrix, 0, mLightPosInWorldSpace, 0);
 
-        // Get screen center coords.
+        // Get screen center coordinates.
         Viewport viewport = eye.getViewport();
         viewport.getClass();
 
@@ -302,34 +315,33 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         //float[] invModelView = new float[16];
         //Matrix.invertM(invProjection, 0, mEyeProjectionMatrix, 0);
 
-        GLU.gluUnProject(viewport.width / 2, viewport.height / 2, 0, mEyeViewMatrix, 0, mEyeProjectionMatrix, 0, new int[] {viewport.x, viewport.y, viewport.width, viewport.height}, 0, center, 0);
+        GLU.gluUnProject(viewport.width / 4.f, viewport.height / 4.f, 0, mEyeViewMatrix, 0, mEyeProjectionMatrix, 0, new int[] {viewport.x, viewport.y, viewport.width, viewport.height}, 0, center, 0);
 
         // Set our per-vertex lighting program.
         GLES20.glUseProgram(mPerVertexProgramHandle);
 
-        // TODO: change fillLevel to a value from a real Unit
-        // TODO: fix filLevel rendering issue
+        // depends on the model you have TODO: fix filLevel rendering issue
         // Unit 1
-        drawModel(0, mEyeViewMatrix, mEyeProjectionMatrix, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.HIGHEST[1], AgingVessel.LOWEST[1], 0.5f, AgingVessel.VERTICES, new float[]{1.0f, 0.0f, 0.0f, 1.0f});
+        drawModel(0, mEyeViewMatrix, mEyeProjectionMatrix, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.HIGHEST[1], AgingVessel.LOWEST[1], modelData[0].level, AgingVessel.VERTICES, interpolateColors(currColor[0], newColor[0], 0));
 
         // Unit 2
-        drawModel(1, mEyeViewMatrix, mEyeProjectionMatrix, mBrewkettlePositions, mBrewkettleNormals, Brewkettle.HIGHEST[1], Brewkettle.LOWEST[1], 0.2f, Brewkettle.VERTICES, new float[]{.0f, .7f, 0.f, 1.0f});
+        drawModel(1, mEyeViewMatrix, mEyeProjectionMatrix, mBrewkettlePositions, mBrewkettleNormals, Brewkettle.HIGHEST[1], Brewkettle.LOWEST[1], modelData[1].level, Brewkettle.VERTICES, interpolateColors(currColor[1], newColor[1], 1));
 
         // Unit 3
-        drawModel(2, mEyeViewMatrix, mEyeProjectionMatrix, mBrightBeerVesselPositions, mBrightBeerVesselNormals, BrightBeerVessel.HIGHEST[1], BrightBeerVessel.LOWEST[1], 0.7f, BrightBeerVessel.VERTICES, new float[]{.5f, .5f, 0.f, 1.0f});
+        drawModel(2, mEyeViewMatrix, mEyeProjectionMatrix, mBrightBeerVesselPositions, mBrightBeerVesselNormals, BrightBeerVessel.HIGHEST[1], BrightBeerVessel.LOWEST[1], modelData[2].level, BrightBeerVessel.VERTICES, interpolateColors(currColor[2], newColor[2], 2));
 
         // Unit 4
-        drawModel(3, mEyeViewMatrix, mEyeProjectionMatrix, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.HIGHEST[1], AgingVessel.LOWEST[1], 0.f, AgingVessel.VERTICES, new float[]{1.0f, 1.0f, 0.3f, 1.0f});
+        drawModel(3, mEyeViewMatrix, mEyeProjectionMatrix, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.HIGHEST[1], AgingVessel.LOWEST[1], modelData[3].level, AgingVessel.VERTICES, interpolateColors(currColor[3], newColor[3], 3));
 
         // Unit 5
-        drawModel(4, mEyeViewMatrix, mEyeProjectionMatrix, mBrewkettlePositions, mBrewkettleNormals, Brewkettle.HIGHEST[1], Brewkettle.LOWEST[1], 0.43f, Brewkettle.VERTICES, new float[]{.5f, .5f, 1.f, 1.0f});
+        drawModel(4, mEyeViewMatrix, mEyeProjectionMatrix, mBrewkettlePositions, mBrewkettleNormals, Brewkettle.HIGHEST[1], Brewkettle.LOWEST[1], modelData[4].level, Brewkettle.VERTICES, interpolateColors(currColor[4], newColor[4], 4));
 
         // Unit 6
-        drawModel(5, mEyeViewMatrix, mEyeProjectionMatrix, mBrightBeerVesselPositions, mBrightBeerVesselNormals, BrightBeerVessel.HIGHEST[1], BrightBeerVessel.LOWEST[1], 1f, BrightBeerVessel.VERTICES, new float[]{.5f, .5f, 1.f, 1.0f});
+        drawModel(5, mEyeViewMatrix, mEyeProjectionMatrix, mBrightBeerVesselPositions, mBrightBeerVesselNormals, BrightBeerVessel.HIGHEST[1], BrightBeerVessel.LOWEST[1], modelData[5].level, BrightBeerVessel.VERTICES, interpolateColors(currColor[5], newColor[5], 5));
 
         // Draw a point to indicate the light.
-        GLES20.glUseProgram(mPointProgramHandle);
-        drawLight(mEyeViewMatrix, mEyeProjectionMatrix);
+        //GLES20.glUseProgram(mPointProgramHandle);
+        //drawLight(mEyeViewMatrix, mEyeProjectionMatrix);
     }
 
     @Override
@@ -406,7 +418,8 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     /**
      * Draws a model given by it's {@code positions}, {@code normals} FloatBuffer-s and a float array containing the color.
      * Preserves the {@code lowestY} and {@code highestY} values.
-     * @param modelNum the number of model to render (aka the number of the model matrix to apply)
+     *
+     * @param modelNum             the number of model to render (aka the number of the model matrix to apply)
      * @param mEyeViewMatrix
      * @param mEyeProjectionMatrix
      * @param positions
@@ -576,15 +589,101 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     }
 
     /**
-     * Update current {@code modelData} with the new {@code modelData}.
+     * Update current {@code modelData} with the new {@code modelData}. Sets stepNum to 1.
      *
      * @param newModelData
      */
     public void updateModelData(Unit[] newModelData) {
-        if (newModelData != null && newModelData.length != 6) {
-            throw new RuntimeException("Bad model data format! Expecting 6 values..");
+        if (newModelData != null && newModelData.length != NUM_OF_MODELS) {
+            throw new RuntimeException("Bad model data format! Expecting " + NUM_OF_MODELS + " values..");
         }
 
+        // Update the model data.
         modelData = newModelData;
+
+        for (int i = 0; i < NUM_OF_MODELS; i++) {
+            // Remap modelData to [0, 1] range
+            modelData[i].level /= 100;
+            // Update the colors for rendering.
+            newColor[i] = getColorFromTemperature(modelData[i].temperature);
+            // Update the current interpolation step number.
+            stepNum[i] = 1;
+        }
     }
+
+    /**
+     * Interpolates between the given colors {@code COLOR_STEPS_PER_INTERVAL} number of times
+     *
+     * @param currColor color before data retrieval
+     * @param newColor color after data retrieval
+     * @return float[4] interpolatedColor
+     */
+    private float[] interpolateColors(float[] currColor, float[] newColor, int modelNum) {
+        int colorLength = currColor.length;
+        if (colorLength != newColor.length) {
+            Log.e(TAG, "Bad color format! Expecting arrays of the same length(==4). Aborting..");
+            return new float[]{0.f, 0.f, 0.f, 0.f};
+        }
+
+        // Calculate the interpolated color.
+        float[] interpolatedColor = new float[colorLength];
+        float leftFactor = (COLOR_STEPS_PER_INTERVAL - stepNum[modelNum]) / COLOR_STEPS_PER_INTERVAL;
+        float rightFactor = 1 - leftFactor;
+        for (int i = 0; i < colorLength; i++) {
+            interpolatedColor[i] = currColor[i] * leftFactor + newColor[i] * rightFactor;
+        }
+
+        // Increment stepNum.
+        incrementStepNum(modelNum);
+
+        return interpolatedColor;
+    }
+
+    /**
+     * Defines the logic behind setting the {@code newColor}.
+     *
+     * @param temperature
+     */
+    private float[] getColorFromTemperature(int temperature) {
+        // A color for the temperature == 50.
+        float[] fiftyColor = new float[]{1.f, 1.f, .0f, 1.f}; // temperature == 50 -> color == YELLOW
+        float[] result = new float[4];
+        float leftFactor, rightFactor;
+
+        // Interpolate between the given zeroColor, fiftyColor, hundredColor.
+        if (temperature <= 50 && temperature >= 0) {
+            leftFactor = (50.f - temperature) / 100;
+            rightFactor = 1 - leftFactor;
+            // A color for the temperature == 0.
+            float[] zeroColor = new float[]{0.f, 0.f, 1.f, 1.f}; // temperature == 0 -> color == BLUE
+            result[0] = zeroColor[0] * leftFactor + fiftyColor[0] * rightFactor;
+            result[1] = zeroColor[1] * leftFactor + fiftyColor[1] * rightFactor;
+            result[2] = zeroColor[2] * leftFactor + fiftyColor[2] * rightFactor;
+        } else if (temperature <= 100 && temperature >= 0) {
+            leftFactor = (100.f - temperature) / 100;
+            rightFactor = 1 - leftFactor;
+            // A color for the temperature == 100.
+            float[] hundredColor = new float[]{1.f, .0f, .0f, 1.f}; // temperature == 100 -> color == RED
+            result[0] = fiftyColor[0] * leftFactor + hundredColor[0] * rightFactor;
+            result[1] = fiftyColor[1] * leftFactor + hundredColor[1] * rightFactor;
+            result[2] = fiftyColor[2] * leftFactor + hundredColor[2] * rightFactor;
+        }
+        result[3] = 1.f;
+
+        return result;
+    }
+
+    private void incrementStepNum(int modelNum) {
+        if (stepNum[modelNum] < COLOR_STEPS_PER_INTERVAL)
+            stepNum[modelNum] += 1;
+    }
+
+    /**
+     * Updates the current and the new colors representing temperature in the renderer
+     * @param newColor
+     */
+    /*public void updateColors(float[] newColor) {
+        currColor = this.newColor;
+        this.newColor = newColor;
+    }*/
 }
