@@ -2,21 +2,21 @@ package de.tum.androidpraktikum.cardroarddatavisualizationjava;
 
 import android.content.Context;
 import android.opengl.GLES20;
-import android.opengl.GLU;
 import android.opengl.Matrix;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.Gravity;
+import android.widget.Toast;
 
 import com.google.vr.sdk.base.Eye;
+import com.google.vr.sdk.base.GvrActivity;
 import com.google.vr.sdk.base.GvrView;
 import com.google.vr.sdk.base.HeadTransform;
-import com.google.vr.sdk.base.PermissionUtils;
 import com.google.vr.sdk.base.Viewport;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
-import java.util.Arrays;
 
 import javax.microedition.khronos.egl.EGLConfig;
 
@@ -48,7 +48,10 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      */
     private float[][] currColor = new float[NUM_OF_MODELS][4];
 
-    private final Context appContext;
+    private final GvrActivity mainActivity;
+    private Toast toast;
+
+
     public static final int NUM_OF_MODELS = 6;
 
     private Unit[] modelData = new Unit[NUM_OF_MODELS];
@@ -202,9 +205,11 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     /**
      * Initialize the model data.
      */
-    public CardboardRenderer(Context appContext) {
+    public CardboardRenderer(GvrActivity mainActivity) {
         // Store the application context for shader retrieval.
-        this.appContext = appContext;
+        this.mainActivity = mainActivity;
+        // The toast to show model data.
+        toast = Toast.makeText(this.mainActivity, "", Toast.LENGTH_SHORT);
 
         // Initialize the aging vessel buffers.
         mAgingVesselPositions = ByteBuffer.allocateDirect(AgingVessel.POSITIONS.length * mBytesPerFloat)
@@ -235,7 +240,43 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     }
 
     @Override
-    public void onNewFrame(HeadTransform headTransform) {// Do a complete rotation every 10 seconds.
+    public void onNewFrame(HeadTransform headTransform) {
+        // TODO: maybe, move in a separate method.
+        // Gonna be used to determine the angle.
+        float[] vecStraight = {0.f, 0.f, 1.f, 1.f};
+        // Used to determined where the user is looking.
+        float[] center = new float[]{0.f, 0.f, 0.f, 1.f};
+        float[] centerInHeadViewSpace = new float[4];
+        // TODO: play with mViewMatrix, maybe add a global camera matrix and re-init here
+        float[] headViewMatrix = new float[16];
+        Matrix.multiplyMM(headViewMatrix, 0, headTransform.getHeadView(), 0, mViewMatrix, 0);
+        Matrix.multiplyMV(centerInHeadViewSpace, 0, headViewMatrix, 0, center, 0);
+
+        // Normalize the Z component of the center of the view.
+        // Take Y component as 0 to project on ZX plane.
+        float lengthCenterInHeadViewSpace = Matrix.length(centerInHeadViewSpace[0], centerInHeadViewSpace[1] * 0, centerInHeadViewSpace[2]);
+        centerInHeadViewSpace[2] = centerInHeadViewSpace[2] / lengthCenterInHeadViewSpace;
+        // Calculate the dot product. Only Z component is non-zero in vecStraight.
+        float dot = centerInHeadViewSpace[2] * vecStraight[2];
+        float angle = (float) ((Math.acos(dot) / Math.PI) * 180);
+        // If in the bottom half of the unit circle -> result is (360 - angle).
+        if (centerInHeadViewSpace[0] > 0) {
+            angle = 360 - angle;
+        }
+
+        final short modelNum = getModelNum(angle);
+
+        // Show the info Toast with the model data.
+        mainActivity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                toast.setText(modelData[modelNum].toString());
+                toast.setGravity(Gravity.LEFT, 0, 0);
+                toast.show();
+            }
+        });
+
+        // Do a complete rotation every 10 seconds.
         long time = SystemClock.uptimeMillis() % 10000L;
         float angleInDegrees = (360.0f / 10000.0f) * ((int) time);
 
@@ -252,9 +293,9 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
         // Calculate position of the light. Rotate and then push into the distance.
         Matrix.setIdentityM(mLightModelMatrix, 0);
-        Matrix.translateM(mLightModelMatrix, 0, 0.0f, 0.0f, -20.0f);
+        //Matrix.translateM(mLightModelMatrix, 0, 0.0f, 0.0f, 0.0f);
         //Matrix.rotateM(mLightModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mLightModelMatrix, 0, 0.0f, 0.0f, 2.0f);
+        //Matrix.translateM(mLightModelMatrix, 0, 0.0f, 0.0f, 2.0f);
 
         Matrix.multiplyMV(mLightPosInWorldSpace, 0, mLightModelMatrix, 0, mLightPosInModelSpace, 0);
 
@@ -266,27 +307,27 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         }
 
         // Unit 1
-        Matrix.translateM(mModelMatrix[0], 0, 0.0f, -10.0f, -27.0f);
+        Matrix.translateM(mModelMatrix[0], 0, 0.0f, -10.0f, -20.0f);
 
         // Unit 2
-        Matrix.rotateM(mModelMatrix[1], 0, 30, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix[1], 0, 0.0f, -10.0f, -27.0f);
+        Matrix.rotateM(mModelMatrix[1], 0, 60, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(mModelMatrix[1], 0, 0.0f, -10.0f, -20.0f);
 
         // Unit 3
-        Matrix.rotateM(mModelMatrix[2], 0, -30, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix[2], 0, 0.0f, -10.0f, -27.0f);
+        Matrix.rotateM(mModelMatrix[2], 0, 120, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(mModelMatrix[2], 0, 0.0f, -10.0f, -20.0f);
 
         // Unit 4
-        Matrix.rotateM(mModelMatrix[3], 0, 60, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix[3], 0, 0.0f, -10.0f, -27.0f);
+        Matrix.rotateM(mModelMatrix[3], 0, 180, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(mModelMatrix[3], 0, 0.0f, -10.0f, -20.0f);
 
         // Unit 5
-        Matrix.rotateM(mModelMatrix[4], 0, -60, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix[4], 0, 0.0f, -10.0f, -27.0f);
+        Matrix.rotateM(mModelMatrix[4], 0, 240, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(mModelMatrix[4], 0, 0.0f, -10.0f, -20.0f);
 
         // Unit 6
-        Matrix.rotateM(mModelMatrix[5], 0, 90, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix[5], 0, 0.0f, -10.0f, -27.0f);
+        Matrix.rotateM(mModelMatrix[5], 0, 300, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(mModelMatrix[5], 0, 0.0f, -10.0f, -20.0f);
 
         // Rotate the models.
         for (int i = 0; i < NUM_OF_MODELS; i++) {
@@ -311,16 +352,15 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         Viewport viewport = eye.getViewport();
         viewport.getClass();
 
+        // TODO: check unneeded and remove
         //float[] invProjection = new float[16];
         //float[] invModelView = new float[16];
         //Matrix.invertM(invProjection, 0, mEyeProjectionMatrix, 0);
-
-        GLU.gluUnProject(viewport.width / 4.f, viewport.height / 4.f, 0, mEyeViewMatrix, 0, mEyeProjectionMatrix, 0, new int[] {viewport.x, viewport.y, viewport.width, viewport.height}, 0, center, 0);
+        //GLU.gluUnProject(viewport.width / 4.f, viewport.height / 4.f, 0, mEyeViewMatrix, 0, mEyeProjectionMatrix, 0, new int[] {viewport.x, viewport.y, viewport.width, viewport.height}, 0, center, 0);
 
         // Set our per-vertex lighting program.
         GLES20.glUseProgram(mPerVertexProgramHandle);
 
-        // depends on the model you have TODO: fix filLevel rendering issue
         // Unit 1
         drawModel(0, mEyeViewMatrix, mEyeProjectionMatrix, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.HIGHEST[1], AgingVessel.LOWEST[1], modelData[0].level, AgingVessel.VERTICES, interpolateColors(currColor[0], newColor[0], 0));
 
@@ -390,8 +430,8 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         // view matrix. In OpenGL 2, we can keep track of these matrices separately if we choose.
         Matrix.setLookAtM(mViewMatrix, 0, eyeX, eyeY, eyeZ, lookX, lookY, lookZ, upX, upY, upZ);
 
-        final String vertexShader = ShaderRetriever.getShaderCode(appContext, ShaderRetriever.VERTEX_SHADER);
-        final String fragmentShader = ShaderRetriever.getShaderCode(appContext, ShaderRetriever.FRAGMENT_SHADER);
+        final String vertexShader = ShaderRetriever.getShaderCode(mainActivity, ShaderRetriever.VERTEX_SHADER);
+        final String fragmentShader = ShaderRetriever.getShaderCode(mainActivity, ShaderRetriever.FRAGMENT_SHADER);
 
         final int vertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, vertexShader);
         final int fragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentShader);
@@ -400,8 +440,8 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
                 new String[]{"a_Position", "a_Color", "a_Normal"});
 
         // Define a simple shader program for our point.
-        final String pointVertexShader = ShaderRetriever.getShaderCode(appContext, ShaderRetriever.LIGHT_VERTEX_SHADER);
-        final String pointFragmentShader = ShaderRetriever.getShaderCode(appContext, ShaderRetriever.LIGHT_FRAGMENT_SHADER);
+        final String pointVertexShader = ShaderRetriever.getShaderCode(mainActivity, ShaderRetriever.LIGHT_VERTEX_SHADER);
+        final String pointFragmentShader = ShaderRetriever.getShaderCode(mainActivity, ShaderRetriever.LIGHT_FRAGMENT_SHADER);
 
         final int pointVertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, pointVertexShader);
         final int pointFragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, pointFragmentShader);
@@ -615,7 +655,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      * Interpolates between the given colors {@code COLOR_STEPS_PER_INTERVAL} number of times
      *
      * @param currColor color before data retrieval
-     * @param newColor color after data retrieval
+     * @param newColor  color after data retrieval
      * @return float[4] interpolatedColor
      */
     private float[] interpolateColors(float[] currColor, float[] newColor, int modelNum) {
@@ -686,4 +726,53 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         currColor = this.newColor;
         this.newColor = newColor;
     }*/
+
+    /**
+     * Get the model number from the current observation angle on ZX plane.
+     *
+     * @param lookingAngle current observation angle on ZX plane.
+     * @return model number if all ok, -1 otherwise.
+     */
+    private short getModelNum(float lookingAngle) {
+        final float[] modelAngles = new float[]{0.f, 60.f, 120.f, 180.f, 240.f, 300.f, 360.f};
+        // Differences between the modelAngles and the lookingAngle on the previous and current steps respectively.
+        float prevDiff = modelAngles[0] - lookingAngle;
+        float currDiff;
+        // The to-be-devised model number.
+        short modelNum = -1;
+
+        for (int i = 1; i < modelAngles.length; i++) {
+            currDiff = modelAngles[i] - lookingAngle;
+
+            if (prevDiff < 0 && currDiff > 0) { // If the sign changes on this interval (aka the angle is inside the interval).
+                if (currDiff > Math.abs(prevDiff)) {
+                    // If difference with the current angle is bigger than with the previous, devise the modelNum from the previous angle.
+                    modelNum = (short) (modelAngles[i - 1] / 60.f);
+                    break;
+                } else {
+                    // If difference with the current angle is smaller than with the previous, devise the modelNum from the current angle.
+                    modelNum = (short) (modelAngles[i] / 60.f);
+                    break;
+                }
+
+            } else {
+                if (currDiff == 0) {
+                    // If currDiff is 0, devise the angle from the current angle.
+                    modelNum = (short) (modelAngles[i] / 60.f);
+                    break;
+                } else if (prevDiff == 0) {
+                    // If prevDiff is 0, devise the angle from the previous angle.
+                    modelNum = (short) (modelAngles[i - 1] / 60.f);
+                    break;
+                }
+            }
+
+            prevDiff = currDiff;
+        }
+
+        // If model num is 6 make it 0.
+        modelNum = (short) (modelNum % 6);
+
+        return modelNum;
+    }
 }

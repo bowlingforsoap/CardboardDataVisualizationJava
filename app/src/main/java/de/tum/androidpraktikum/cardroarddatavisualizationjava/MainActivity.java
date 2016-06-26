@@ -83,7 +83,7 @@ public class MainActivity extends GvrActivity {
             gvrView.setEGLContextClientVersion(2);
 
             // Set the renderer to our renderer.
-            cardboardRenderer = new CardboardRenderer(this.getApplicationContext());
+            cardboardRenderer = new CardboardRenderer(this);
             gvrView.setRenderer(cardboardRenderer);
         } else {
             // This is where you could create an OpenGL ES 1.x compatible
@@ -141,7 +141,7 @@ public class MainActivity extends GvrActivity {
                 // Starts the query
                 conn.connect();
                 int response = conn.getResponseCode();
-                Log.d(DEBUG_TAG, "The response is: " + response);
+                //Log.d(DEBUG_TAG, "The response is: " + response);
                 is = conn.getInputStream();
 
                 int available = is.available();
