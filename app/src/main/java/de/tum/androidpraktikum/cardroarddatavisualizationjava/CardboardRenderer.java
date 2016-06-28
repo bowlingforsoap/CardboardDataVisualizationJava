@@ -1,6 +1,5 @@
 package de.tum.androidpraktikum.cardroarddatavisualizationjava;
 
-import android.content.Context;
 import android.opengl.GLES20;
 import android.opengl.Matrix;
 import android.os.SystemClock;
@@ -19,18 +18,17 @@ import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 
 import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.opengles.GL;
 
-import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.AgingVessel;
-import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.Brewkettle;
-import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.BrightBeerVessel;
+import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.Model;
 import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.Unit;
-import de.tum.androidpraktikum.cardroarddatavisualizationjava.shaders.ShaderRetriever;
 
 /**
  * This class implements our custom renderer. Note that the GL10 parameter passed in is unused for OpenGL ES 2.0
  * renderers -- the static class GLES20 is used instead.
  */
 public class CardboardRenderer implements GvrView.StereoRenderer {
+    private static final String TAG = "CardboardRenderer";
     /**
      * Determines the number of interpolated colors (for the fill level) to be shown between the two consequently fetched colors.
      */
@@ -38,32 +36,43 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     /**
      * The current step in interpolating the color [1, COLOR_STEPS_PER_INTERVAL].
      */
-    private int[] stepNum = new int[NUM_OF_MODELS];
+    private int[] stepNum = new int[NUM_OF_UNITS];
     /**
      * The new color retrieved per model.
      */
-    private float[][] newColor = new float[NUM_OF_MODELS][4];
+    private float[][] newColor = new float[NUM_OF_UNITS][4];
+
     /**
      * The color before the latest retrieval per model.
      */
-    private float[][] currColor = new float[NUM_OF_MODELS][4];
-
+    private float[][] currColor = new float[NUM_OF_UNITS][4];
     private final GvrActivity mainActivity;
+
+    /**
+     * Shows the model data.
+     */
     private Toast toast;
 
+    /**
+     * Number of brewery units to render. Does not necessarily corresponds to the number of the 3D models.
+     */
+    public static final int NUM_OF_UNITS = 6;
 
-    public static final int NUM_OF_MODELS = 6;
-
-    private Unit[] modelData = new Unit[NUM_OF_MODELS];
+    /**
+     * Storage for model data.
+     */
+    private Unit[] modelData = new Unit[NUM_OF_UNITS];
+    /**
+     * Storage for models.
+     */
+    private Model[] models = new Model[3];
 
     {
-        for (int i = 0; i < NUM_OF_MODELS; i++) {
+        for (int i = 0; i < NUM_OF_UNITS; i++) {
             modelData[i] = new Unit();
             stepNum[i] = 1;
         }
     }
-
-    private static final String TAG = "CardboardRenderer";
 
     // Center of screen to be re-projected in model space.
     private float[] center = new float[4];
@@ -81,19 +90,16 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      * Store the model matrix. This matrix is used to move models from object space (where each model can be thought
      * of being located at the center of the universe) to world space.
      */
-    private float[][] mModelMatrix = new float[NUM_OF_MODELS][16];
-
+    private float[][] modelMatrix = new float[NUM_OF_UNITS][16];
     /**
      * Store the view matrix. This can be thought of as our camera. This matrix transforms world space to eye space;
      * it positions things relative to our eye.
      */
     private float[] mViewMatrix = new float[16];
-
     /**
      * Allocate storage for the final combined matrix. This will be passed into the shader program.
      */
-    private float[] mMVPMatrix = new float[16];
-
+    private float[] mvpMatrix = new float[16];
     /**
      * Stores a copy of the model matrix specifically for the light position.
      */
@@ -102,59 +108,71 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     /**
      * Store our model data in a float buffer.
      */
-    private final FloatBuffer mAgingVesselPositions;
+    /*private final FloatBuffer mAgingVesselPositions;
     private final FloatBuffer mAgingVesselNormals;
-
-    private final FloatBuffer mBrightBeerVesselPositions;
-    private final FloatBuffer mBrightBeerVesselNormals;
-
-    private final FloatBuffer mBrewkettlePositions;
-    private final FloatBuffer mBrewkettleNormals;
+    private final FloatBuffer mAgingVesselTextureCoordinates;*/
+            //TODO: add description
+    private final FloatBuffer[] breweryModelsBuffers = new FloatBuffer[9];
 
     /**
      * This will be used to pass in the transformation matrix.
      */
-    private int mMVPMatrixHandle;
-
+    private int mvpMatrixHandle;
     /**
      * This will be used to pass in the modelview matrix.
      */
-    private int mMVMatrixHandle;
+    private int mvMatrixHandle;
 
+    /**
+     * Handle to the texture data.
+     */
+    private int floorTilesTextureDataHandle;
+    /**
+     * Handle to the heightmap texture data.
+     */
+    private int floorTilesHeightmapDataHandle;
+    /**
+     * Handle to the texture data of brewery models.
+     */
+    private int breweryModelsTextureDataHandle;
+    /**
+     * This will be used to pass in the texture itself.
+     */
+    private int textureUniformHandle;
     /**
      * This will be used to pass in the light position.
      */
-    private int mLightPosHandle;
-
+    private int lightUniformPosHandle;
     /**
-     * This will be used to pass in the (i.e. {@link AgingVessel}.)HIGHEST vertex.
+     * This will be used to pass in the highest Y coordinate of the model.
      */
-    private int mHighestYHandle;
-
+    private int highestYUniformHandle;
     /**
-     * This will be used to pass in the (i.e. {@link AgingVessel}.)LOWEST vertex.
+     * This will be used to pass in the the lowest Y coordinate of the model.
      */
-    private int mLowestYHandle;
+    private int lowestYUniformHandle;
 
     /**
      * This will be used to pass in the fill level of the {@link Unit}.
      */
-    private int mFillLevel;
+    private int fillLevel;
 
+    /**
+     * This will be used to pass in texture per-vertex coordinates.
+     */
+    private int texCoordinateHandle;
     /**
      * This will be used to pass in model position information.
      */
-    private int mPositionHandle;
-
+    private int positionHandle;
     /**
      * This will be used to pass in model color information.
      */
-    private int mColorHandle;
-
+    private int colorHandle;
     /**
      * This will be used to pass in model normal information.
      */
-    private int mNormalHandle;
+    private int normalHandle;
 
     /**
      * How many bytes per float.
@@ -164,17 +182,20 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     /**
      * Size of the position data in elements.
      */
-    private final int mPositionDataSize = 3;
-
+    private final int positionDataSize = 3;
     /**
      * Size of the color data in elements.
      */
     private final int mColorDataSize = 4;
-
     /**
      * Size of the normal data in elements.
      */
-    private final int mNormalDataSize = 3;
+    private final int normalDataSize = 3;
+    /**
+     * Size of the texel data in elements.
+     */
+    private final int textureDataSize = 2;
+
 
     /**
      * Used to hold a light centered on the origin in model space. We need a 4th coordinate so we can get translations to work when
@@ -195,7 +216,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     /**
      * This is a handle to our per-vertex cube shading program.
      */
-    private int mPerVertexProgramHandle;
+    private int perVertexProgramHandle;
 
     /**
      * This is a handle to our light point program.
@@ -211,32 +232,115 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         // The toast to show model data.
         toast = Toast.makeText(this.mainActivity, "", Toast.LENGTH_SHORT);
 
-        // Initialize the aging vessel buffers.
-        mAgingVesselPositions = ByteBuffer.allocateDirect(AgingVessel.POSITIONS.length * mBytesPerFloat)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        mAgingVesselPositions.put(AgingVessel.POSITIONS).position(0);
+        // Initialize 3D models.
+        models[0] = new Model(mainActivity, R.raw.aging_vessel);
+        models[1] = new Model(mainActivity, R.raw.brewkettle);
+        models[2] = new Model(mainActivity, R.raw.bright_beer_vessel);
 
-        mAgingVesselNormals = ByteBuffer.allocateDirect(AgingVessel.NORMALS.length * mBytesPerFloat)
+        // Initialize the aging vessel buffers.
+        // Positions.
+        breweryModelsBuffers[0] = ByteBuffer.allocateDirect(models[0].getPositions().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        breweryModelsBuffers[0].put(models[0].getPositions()).position(0);
+        // Normals.
+        breweryModelsBuffers[1] = ByteBuffer.allocateDirect(models[0].getNormals().length * mBytesPerFloat)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        mAgingVesselNormals.put(AgingVessel.NORMALS).position(0);
+        breweryModelsBuffers[1].put(models[0].getNormals()).position(0);
+        // Texels.
+        breweryModelsBuffers[2] = ByteBuffer.allocateDirect(models[0].getTexels().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        breweryModelsBuffers[2].put(models[0].getTexels()).position(0);
 
         // Initialize the brewkettle buffers.
-        mBrewkettlePositions = ByteBuffer.allocateDirect(Brewkettle.POSITIONS.length * mBytesPerFloat)
+        // getPositions().
+        breweryModelsBuffers[3] = ByteBuffer.allocateDirect(models[1].getPositions().length * mBytesPerFloat)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        mBrewkettlePositions.put(Brewkettle.POSITIONS).position(0);
-
-        mBrewkettleNormals = ByteBuffer.allocateDirect(Brewkettle.NORMALS.length * mBytesPerFloat)
+        breweryModelsBuffers[3].put(models[1].getPositions()).position(0);
+        // Normals.
+        breweryModelsBuffers[4] = ByteBuffer.allocateDirect(models[1].getNormals().length * mBytesPerFloat)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        mBrewkettleNormals.put(Brewkettle.NORMALS).position(0);
+        breweryModelsBuffers[4].put(models[1].getNormals()).position(0);
+        // Texels.
+        breweryModelsBuffers[5] = ByteBuffer.allocateDirect(models[1].getTexels().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        breweryModelsBuffers[5].put(models[1].getTexels()).position(0);
 
         // Initialize the bright beer vessel buffers.
-        mBrightBeerVesselPositions = ByteBuffer.allocateDirect(BrightBeerVessel.POSITIONS.length * mBytesPerFloat)
+        // Positions.
+        breweryModelsBuffers[6] = ByteBuffer.allocateDirect(models[2].getPositions().length * mBytesPerFloat)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        mBrightBeerVesselPositions.put(BrightBeerVessel.POSITIONS).position(0);
+        breweryModelsBuffers[6].put(models[2].getPositions()).position(0);
+        // Normals.
+        breweryModelsBuffers[7] = ByteBuffer.allocateDirect(models[2].getNormals().length * mBytesPerFloat)
+                .order(ByteOrder.nativeOrder()).asFloatBuffer();
+        breweryModelsBuffers[7].put(models[2].getNormals()).position(0);
+        // Texels.
+        breweryModelsBuffers[8] = ByteBuffer.allocateDirect(models[2].getTexels().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        breweryModelsBuffers[8].put(models[2].getTexels()).position(0);
+    }
 
-        mBrightBeerVesselNormals = ByteBuffer.allocateDirect(BrightBeerVessel.NORMALS.length * mBytesPerFloat)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        mBrightBeerVesselNormals.put(BrightBeerVessel.NORMALS).position(0);
+    @Override
+    public void onSurfaceCreated(EGLConfig eglConfig) {
+        Log.i(TAG, "onSurfaceCreated");
+        // Set the background clear color to black.
+        GLES20.glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+
+
+        // Use culling to remove back faces.
+        GLES20.glEnable(GLES20.GL_CULL_FACE);
+
+        // Enable depth testing
+        GLES20.glEnable(GLES20.GL_DEPTH_TEST);
+
+        // Position the eye in front of the origin.
+        final float eyeX = 0.0f;
+        final float eyeY = 0.0f;
+        final float eyeZ = -0.5f;
+
+        // We are looking toward the distance.
+        final float lookX = 0.0f;
+        final float lookY = 0.0f;
+        final float lookZ = -5.0f;
+
+        // Set our up vector. This is where our head would be pointing were we holding the camera.
+        final float upX = 0.0f;
+        final float upY = 1.0f;
+        final float upZ = 0.0f;
+
+        // Set the view matrix. This matrix can be said to represent the camera position.
+        // NOTE: In OpenGL 1, a ModelView matrix is used, which is a combination of a model and
+        // view matrix. In OpenGL 2, we can keep track of these matrices separately if we choose.
+        Matrix.setLookAtM(mViewMatrix, 0, eyeX, eyeY, eyeZ, lookX, lookY, lookZ, upX, upY, upZ);
+
+        final String vertexShader = AssetLoader.loadShader(mainActivity, AssetLoader.VERTEX_SHADER);
+        final String fragmentShader = AssetLoader.loadShader(mainActivity, AssetLoader.FRAGMENT_SHADER);
+
+        final int vertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, vertexShader);
+        final int fragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentShader);
+
+        perVertexProgramHandle = createAndLinkProgram(vertexShaderHandle, fragmentShaderHandle,
+                new String[]{"a_Position", "a_Color", "a_Normal", "a_TexCoordinate"});
+
+        // Define a simple shader program for our point.
+        final String pointVertexShader = AssetLoader.loadShader(mainActivity, AssetLoader.LIGHT_VERTEX_SHADER);
+        final String pointFragmentShader = AssetLoader.loadShader(mainActivity, AssetLoader.LIGHT_FRAGMENT_SHADER);
+
+        final int pointVertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, pointVertexShader);
+        final int pointFragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, pointFragmentShader);
+
+        mPointProgramHandle = createAndLinkProgram(pointVertexShaderHandle, pointFragmentShaderHandle,
+                new String[]{"a_Position"});
+
+        // Load handles for the texture bitmaps.
+        floorTilesTextureDataHandle = AssetLoader.loadTexture(mainActivity, R.drawable.floor_tiles_texture);
+        floorTilesHeightmapDataHandle = AssetLoader.loadTexture(mainActivity, R.drawable.floor_tiles_texture);
+        breweryModelsTextureDataHandle = AssetLoader.loadTexture(mainActivity, R.drawable.brewery_models_texture);
+    }
+
+    @Override
+    /**
+     * i - height
+     * i1 - width
+     */
+    public void onSurfaceChanged(int i, int i1) {
+        Log.i(TAG, "onSurfaceChanged: i = " + i + "; i1 = " + i1);
     }
 
     @Override
@@ -280,16 +384,18 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         long time = SystemClock.uptimeMillis() % 10000L;
         float angleInDegrees = (360.0f / 10000.0f) * ((int) time);
 
-        // Set program handles for cube drawing.
-        mMVPMatrixHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_MVPMatrix");
-        mMVMatrixHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_MVMatrix");
-        mLightPosHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_LightPos");
-        mHighestYHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_HighestY");
-        mLowestYHandle = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_LowestY");
-        mFillLevel = GLES20.glGetUniformLocation(mPerVertexProgramHandle, "u_FillLevel");
-        mPositionHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Position");
-        mColorHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Color");
-        mNormalHandle = GLES20.glGetAttribLocation(mPerVertexProgramHandle, "a_Normal");
+        // Set program handles for drawing.
+        mvpMatrixHandle = GLES20.glGetUniformLocation(perVertexProgramHandle, "u_MVPMatrix");
+        mvMatrixHandle = GLES20.glGetUniformLocation(perVertexProgramHandle, "u_MVMatrix");
+        textureUniformHandle = GLES20.glGetUniformLocation(perVertexProgramHandle, "u_Texture");
+        lightUniformPosHandle = GLES20.glGetUniformLocation(perVertexProgramHandle, "u_LightPos");
+        highestYUniformHandle = GLES20.glGetUniformLocation(perVertexProgramHandle, "u_HighestY");
+        lowestYUniformHandle = GLES20.glGetUniformLocation(perVertexProgramHandle, "u_LowestY");
+        fillLevel = GLES20.glGetUniformLocation(perVertexProgramHandle, "u_FillLevel");
+        texCoordinateHandle = GLES20.glGetAttribLocation(perVertexProgramHandle, "a_TexCoordinate");
+        positionHandle = GLES20.glGetAttribLocation(perVertexProgramHandle, "a_Position");
+        colorHandle = GLES20.glGetAttribLocation(perVertexProgramHandle, "a_Color");
+        normalHandle = GLES20.glGetAttribLocation(perVertexProgramHandle, "a_Normal");
 
         // Calculate position of the light. Rotate and then push into the distance.
         Matrix.setIdentityM(mLightModelMatrix, 0);
@@ -302,36 +408,36 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         // Draw some cubes.
 
         // Initiate view matrices for all models with an identity.
-        for (int i = 0; i < NUM_OF_MODELS; i++) {
-            Matrix.setIdentityM(mModelMatrix[i], 0);
+        for (int i = 0; i < NUM_OF_UNITS; i++) {
+            Matrix.setIdentityM(modelMatrix[i], 0);
         }
 
         // Unit 1
-        Matrix.translateM(mModelMatrix[0], 0, 0.0f, -10.0f, -20.0f);
+        Matrix.translateM(modelMatrix[0], 0, 0.0f, -10.0f, -20.0f);
 
         // Unit 2
-        Matrix.rotateM(mModelMatrix[1], 0, 60, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix[1], 0, 0.0f, -10.0f, -20.0f);
+        Matrix.rotateM(modelMatrix[1], 0, 60, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(modelMatrix[1], 0, 0.0f, -10.0f, -20.0f);
 
         // Unit 3
-        Matrix.rotateM(mModelMatrix[2], 0, 120, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix[2], 0, 0.0f, -10.0f, -20.0f);
+        Matrix.rotateM(modelMatrix[2], 0, 120, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(modelMatrix[2], 0, 0.0f, -10.0f, -20.0f);
 
         // Unit 4
-        Matrix.rotateM(mModelMatrix[3], 0, 180, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix[3], 0, 0.0f, -10.0f, -20.0f);
+        Matrix.rotateM(modelMatrix[3], 0, 180, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(modelMatrix[3], 0, 0.0f, -10.0f, -20.0f);
 
         // Unit 5
-        Matrix.rotateM(mModelMatrix[4], 0, 240, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix[4], 0, 0.0f, -10.0f, -20.0f);
+        Matrix.rotateM(modelMatrix[4], 0, 240, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(modelMatrix[4], 0, 0.0f, -10.0f, -20.0f);
 
         // Unit 6
-        Matrix.rotateM(mModelMatrix[5], 0, 300, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(mModelMatrix[5], 0, 0.0f, -10.0f, -20.0f);
+        Matrix.rotateM(modelMatrix[5], 0, 300, 0.0f, 1.0f, 0.0f);
+        Matrix.translateM(modelMatrix[5], 0, 0.0f, -10.0f, -20.0f);
 
         // Rotate the models.
-        for (int i = 0; i < NUM_OF_MODELS; i++) {
-            Matrix.rotateM(mModelMatrix[i], 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
+        for (int i = 0; i < NUM_OF_UNITS; i++) {
+            Matrix.rotateM(modelMatrix[i], 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
         }
     }
 
@@ -352,32 +458,14 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         Viewport viewport = eye.getViewport();
         viewport.getClass();
 
-        // TODO: check unneeded and remove
-        //float[] invProjection = new float[16];
-        //float[] invModelView = new float[16];
-        //Matrix.invertM(invProjection, 0, mEyeProjectionMatrix, 0);
-        //GLU.gluUnProject(viewport.width / 4.f, viewport.height / 4.f, 0, mEyeViewMatrix, 0, mEyeProjectionMatrix, 0, new int[] {viewport.x, viewport.y, viewport.width, viewport.height}, 0, center, 0);
-
         // Set our per-vertex lighting program.
-        GLES20.glUseProgram(mPerVertexProgramHandle);
+        GLES20.glUseProgram(perVertexProgramHandle);
 
-        // Unit 1
-        drawModel(0, mEyeViewMatrix, mEyeProjectionMatrix, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.HIGHEST[1], AgingVessel.LOWEST[1], modelData[0].level, AgingVessel.VERTICES, interpolateColors(currColor[0], newColor[0], 0));
-
-        // Unit 2
-        drawModel(1, mEyeViewMatrix, mEyeProjectionMatrix, mBrewkettlePositions, mBrewkettleNormals, Brewkettle.HIGHEST[1], Brewkettle.LOWEST[1], modelData[1].level, Brewkettle.VERTICES, interpolateColors(currColor[1], newColor[1], 1));
-
-        // Unit 3
-        drawModel(2, mEyeViewMatrix, mEyeProjectionMatrix, mBrightBeerVesselPositions, mBrightBeerVesselNormals, BrightBeerVessel.HIGHEST[1], BrightBeerVessel.LOWEST[1], modelData[2].level, BrightBeerVessel.VERTICES, interpolateColors(currColor[2], newColor[2], 2));
-
-        // Unit 4
-        drawModel(3, mEyeViewMatrix, mEyeProjectionMatrix, mAgingVesselPositions, mAgingVesselNormals, AgingVessel.HIGHEST[1], AgingVessel.LOWEST[1], modelData[3].level, AgingVessel.VERTICES, interpolateColors(currColor[3], newColor[3], 3));
-
-        // Unit 5
-        drawModel(4, mEyeViewMatrix, mEyeProjectionMatrix, mBrewkettlePositions, mBrewkettleNormals, Brewkettle.HIGHEST[1], Brewkettle.LOWEST[1], modelData[4].level, Brewkettle.VERTICES, interpolateColors(currColor[4], newColor[4], 4));
-
-        // Unit 6
-        drawModel(5, mEyeViewMatrix, mEyeProjectionMatrix, mBrightBeerVesselPositions, mBrightBeerVesselNormals, BrightBeerVessel.HIGHEST[1], BrightBeerVessel.LOWEST[1], modelData[5].level, BrightBeerVessel.VERTICES, interpolateColors(currColor[5], newColor[5], 5));
+        for (int i = 0; i < NUM_OF_UNITS; i++) {
+            // Draw all the units.
+            // TODO: may need some tweaking, if the modelData remains the same, but has to be used for a lot 3D models
+            drawModel(i, mEyeViewMatrix, mEyeProjectionMatrix, breweryModelsBuffers[(i * 3) % 9], breweryModelsBuffers[(i * 3 + 1) % 9], breweryModelsBuffers[(i * 3 + 2) % 9], models[i % 3].getHighest()[1], models[i % 3].getLowest()[1], modelData[i].level, models[i % 3].getModelInfo().getVertices(), interpolateColors(currColor[i], newColor[i], 0), breweryModelsTextureDataHandle, GLES20.GL_TEXTURE0);
+        }
 
         // Draw a point to indicate the light.
         //GLES20.glUseProgram(mPointProgramHandle);
@@ -388,80 +476,19 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     public void onFinishFrame(Viewport viewport) {
     }
 
-    @Override
-    /**
-     * i - height
-     * i1 - width
-     */
-    public void onSurfaceChanged(int i, int i1) {
-        Log.i(TAG, "onSurfaceChanged: i = " + i + "; i1 = " + i1);
-    }
-
-    @Override
-    public void onSurfaceCreated(EGLConfig eglConfig) {
-        Log.i(TAG, "onSurfaceCreated");
-        // Set the background clear color to black.
-        GLES20.glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-
-
-        // Use culling to remove back faces.
-        GLES20.glEnable(GLES20.GL_CULL_FACE);
-
-        // Enable depth testing
-        GLES20.glEnable(GLES20.GL_DEPTH_TEST);
-
-        // Position the eye in front of the origin.
-        final float eyeX = 0.0f;
-        final float eyeY = 0.0f;
-        final float eyeZ = -0.5f;
-
-        // We are looking toward the distance
-        final float lookX = 0.0f;
-        final float lookY = 0.0f;
-        final float lookZ = -5.0f;
-
-        // Set our up vector. This is where our head would be pointing were we holding the camera.
-        final float upX = 0.0f;
-        final float upY = 1.0f;
-        final float upZ = 0.0f;
-
-        // Set the view matrix. This matrix can be said to represent the camera position.
-        // NOTE: In OpenGL 1, a ModelView matrix is used, which is a combination of a model and
-        // view matrix. In OpenGL 2, we can keep track of these matrices separately if we choose.
-        Matrix.setLookAtM(mViewMatrix, 0, eyeX, eyeY, eyeZ, lookX, lookY, lookZ, upX, upY, upZ);
-
-        final String vertexShader = ShaderRetriever.getShaderCode(mainActivity, ShaderRetriever.VERTEX_SHADER);
-        final String fragmentShader = ShaderRetriever.getShaderCode(mainActivity, ShaderRetriever.FRAGMENT_SHADER);
-
-        final int vertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, vertexShader);
-        final int fragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentShader);
-
-        mPerVertexProgramHandle = createAndLinkProgram(vertexShaderHandle, fragmentShaderHandle,
-                new String[]{"a_Position", "a_Color", "a_Normal"});
-
-        // Define a simple shader program for our point.
-        final String pointVertexShader = ShaderRetriever.getShaderCode(mainActivity, ShaderRetriever.LIGHT_VERTEX_SHADER);
-        final String pointFragmentShader = ShaderRetriever.getShaderCode(mainActivity, ShaderRetriever.LIGHT_FRAGMENT_SHADER);
-
-        final int pointVertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, pointVertexShader);
-        final int pointFragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, pointFragmentShader);
-        mPointProgramHandle = createAndLinkProgram(pointVertexShaderHandle, pointFragmentShaderHandle,
-                new String[]{"a_Position"});
-    }
 
     @Override
     public void onRendererShutdown() {
         Log.i(TAG, "onRendererShutdown");
     }
 
-
     /**
      * Draws a model given by it's {@code positions}, {@code normals} FloatBuffer-s and a float array containing the color.
      * Preserves the {@code lowestY} and {@code highestY} values.
      *
      * @param modelNum             the number of model to render (aka the number of the model matrix to apply)
-     * @param mEyeViewMatrix
-     * @param mEyeProjectionMatrix
+     * @param eyeViewMatrix
+     * @param eyeProjectionMatrix
      * @param positions
      * @param normals
      * @param highestY
@@ -470,7 +497,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      * @param numVertices
      * @param color
      */
-    private void drawModel(int modelNum, float[] mEyeViewMatrix, float[] mEyeProjectionMatrix, FloatBuffer positions, FloatBuffer normals, float highestY, float lowestY, float fillLevel, int numVertices, float[] color) {
+    private void drawModel(int modelNum, float[] eyeViewMatrix, float[] eyeProjectionMatrix, FloatBuffer positions, FloatBuffer normals, FloatBuffer texels, float highestY, float lowestY, float fillLevel, int numVertices, float[] color, int textureDataHandle, int glTextureNumber) {
         // Check the given color array
         if (color == null || color.length != 4) {
             throw new RuntimeException("Bad color array format! Expecting 4 values..");
@@ -478,46 +505,60 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
         // Pass attributes and stuff to the shader program
         //
+
+        // TODO: try getting rid of '.position(0)' and see what happens
         // Pass in the position information
         positions.position(0);
-        GLES20.glVertexAttribPointer(mPositionHandle, mPositionDataSize, GLES20.GL_FLOAT, false,
+        GLES20.glVertexAttribPointer(positionHandle, positionDataSize, GLES20.GL_FLOAT, false,
                 0, positions);
-        GLES20.glEnableVertexAttribArray(mPositionHandle);
-
-        // Pass in the color information
-        GLES20.glVertexAttrib4f(mColorHandle, color[0], color[1], color[2], color[3]);
-        GLES20.glDisableVertexAttribArray(mColorHandle);
-
+        GLES20.glEnableVertexAttribArray(positionHandle);
         // Pass in the normal information
         normals.position(0);
-        GLES20.glVertexAttribPointer(mNormalHandle, mNormalDataSize, GLES20.GL_FLOAT, false,
+        GLES20.glVertexAttribPointer(normalHandle, normalDataSize, GLES20.GL_FLOAT, false,
                 0, normals);
-        GLES20.glEnableVertexAttribArray(mNormalHandle);
+        GLES20.glEnableVertexAttribArray(normalHandle);
+        // Pass in the texture information.
+        texels.position(0);
+        GLES20.glVertexAttribPointer(texCoordinateHandle, textureDataSize, GLES20.GL_FLOAT, false, 0, texels);
+        GLES20.glEnableVertexAttribArray(texCoordinateHandle);
+
+        // Pass in the texture itself (sampler).
+        // Set the active texture unit to texture unit 0.
+        GLES20.glActiveTexture(glTextureNumber);
+        // Bind the texture to this unit.
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureDataHandle);
+        // Tell the texture uniform sampler to use this texture in the shader by binding to texture unit 0.
+        GLES20.glUniform1i(textureUniformHandle, 0);
+
+        // Attributes.
+        //
+        // Pass in the color information
+        GLES20.glVertexAttrib4f(colorHandle, color[0], color[1], color[2], color[3]);
+        GLES20.glDisableVertexAttribArray(colorHandle);
 
         // Projection matrix construction
         //
         // This multiplies the view matrix by the model matrix, and stores the result in the MVP matrix
         // (which currently contains model * view).
-        Matrix.multiplyMM(mMVPMatrix, 0, mEyeViewMatrix, 0, mModelMatrix[modelNum], 0);
+        Matrix.multiplyMM(mvpMatrix, 0, eyeViewMatrix, 0, modelMatrix[modelNum], 0);
 
         // Pass in the modelview matrix.
-        GLES20.glUniformMatrix4fv(mMVMatrixHandle, 1, false, mMVPMatrix, 0);
+        GLES20.glUniformMatrix4fv(mvMatrixHandle, 1, false, mvpMatrix, 0);
 
         // This multiplies the modelview matrix by the projection matrix, and stores the result in the MVP matrix
         // (which now contains model * view * projection).
-        Matrix.multiplyMM(mMVPMatrix, 0, mEyeProjectionMatrix, 0, mMVPMatrix, 0);
+        Matrix.multiplyMM(mvpMatrix, 0, eyeProjectionMatrix, 0, mvpMatrix, 0);
 
         // Pass in the combined matrix.
-        GLES20.glUniformMatrix4fv(mMVPMatrixHandle, 1, false, mMVPMatrix, 0);
+        GLES20.glUniformMatrix4fv(mvpMatrixHandle, 1, false, mvpMatrix, 0);
 
         // Pass in the light position in eye space.
-        GLES20.glUniform3f(mLightPosHandle, mLightPosInEyeSpace[0], mLightPosInEyeSpace[1], mLightPosInEyeSpace[2]);
+        GLES20.glUniform3f(lightUniformPosHandle, mLightPosInEyeSpace[0], mLightPosInEyeSpace[1], mLightPosInEyeSpace[2]);
 
         // Pass in the highest and the lowest vertices
-
-        GLES20.glUniform1f(mHighestYHandle, highestY);
-        GLES20.glUniform1f(mLowestYHandle, lowestY);
-        GLES20.glUniform1f(mFillLevel, fillLevel);
+        GLES20.glUniform1f(highestYUniformHandle, highestY);
+        GLES20.glUniform1f(lowestYUniformHandle, lowestY);
+        GLES20.glUniform1f(this.fillLevel, fillLevel);
 
         // Draw the cube.
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, numVertices);
@@ -536,9 +577,9 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         GLES20.glDisableVertexAttribArray(pointPositionHandle);
 
         // Pass in the transformation matrix.
-        Matrix.multiplyMM(mMVPMatrix, 0, mEyeViewMatrix, 0, mLightModelMatrix, 0);
-        Matrix.multiplyMM(mMVPMatrix, 0, mEyeProjectionMatrix, 0, mMVPMatrix, 0);
-        GLES20.glUniformMatrix4fv(pointMVPMatrixHandle, 1, false, mMVPMatrix, 0);
+        Matrix.multiplyMM(mvpMatrix, 0, mEyeViewMatrix, 0, mLightModelMatrix, 0);
+        Matrix.multiplyMM(mvpMatrix, 0, mEyeProjectionMatrix, 0, mvpMatrix, 0);
+        GLES20.glUniformMatrix4fv(pointMVPMatrixHandle, 1, false, mvpMatrix, 0);
 
         // Draw the point.
         GLES20.glDrawArrays(GLES20.GL_POINTS, 0, 1);
@@ -628,20 +669,21 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         return programHandle;
     }
 
+
     /**
      * Update current {@code modelData} with the new {@code modelData}. Sets stepNum to 1.
      *
      * @param newModelData
      */
     public void updateModelData(Unit[] newModelData) {
-        if (newModelData != null && newModelData.length != NUM_OF_MODELS) {
-            throw new RuntimeException("Bad model data format! Expecting " + NUM_OF_MODELS + " values..");
+        if (newModelData != null && newModelData.length != NUM_OF_UNITS) {
+            throw new RuntimeException("Bad model data format! Expecting " + NUM_OF_UNITS + " values..");
         }
 
         // Update the model data.
         modelData = newModelData;
 
-        for (int i = 0; i < NUM_OF_MODELS; i++) {
+        for (int i = 0; i < NUM_OF_UNITS; i++) {
             // Remap modelData to [0, 1] range
             modelData[i].level /= 100;
             // Update the colors for rendering.

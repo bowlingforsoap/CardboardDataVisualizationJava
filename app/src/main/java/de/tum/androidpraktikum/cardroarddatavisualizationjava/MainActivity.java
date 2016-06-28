@@ -5,20 +5,13 @@ import android.content.Context;
 import android.content.pm.ConfigurationInfo;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
-import android.opengl.GLSurfaceView;
 import android.os.AsyncTask;
-import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
-import android.view.Window;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-import com.google.vr.sdk.base.Eye;
 import com.google.vr.sdk.base.GvrActivity;
 import com.google.vr.sdk.base.GvrView;
-import com.google.vr.sdk.base.HeadTransform;
-import com.google.vr.sdk.base.Viewport;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -31,10 +24,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.concurrent.TimeUnit;
-
-import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.opengles.GL10;
 
 import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.Unit;
 
@@ -126,7 +115,7 @@ public class MainActivity extends GvrActivity {
     private class DataRetriever extends AsyncTask<String, Void, String> {
 
         private static final String DEBUG_TAG = "DEBUG";
-        private Unit[] modelData = new Unit[CardboardRenderer.NUM_OF_MODELS];
+        private Unit[] modelData = new Unit[CardboardRenderer.NUM_OF_UNITS];
 
         private String downloadUrl(String myurl) throws IOException {
             InputStream is = null;
