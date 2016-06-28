@@ -62,34 +62,38 @@ public class AssetLoader {
     /**
      * Loads a texture specified with a given {@code resourceId}.
      * @param appContext
-     * @param resourceId
+     * @param resourceIds
      * @return
      */
-    public static int loadTexture(final Context appContext, final int resourceId) {
+    public static int[] loadTextures(final Context appContext, final int ... resourceIds) {
         // Generate texture/handle;
-        final int[] textureHandle = new int[1];
+        final int[] textureHandle = new int[resourceIds.length];
         GLES20.glGenTextures(1, textureHandle, 0);
 
         // Load the texture from resources.
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inScaled = false; // By default, Android applies pre-scaling to bitmaps depending on the resolution of your device and which resource folder you placed the image in. We don’t want Android to scale our bitmap at all, so to be sure, we set inScaled to false.
 
-        Bitmap bitmap = BitmapFactory.decodeResource(appContext.getResources(), resourceId, options);
+        Bitmap bitmap;
 
-        // Bind to texture in OpenGL. Binding to a texture tells OpenGL that subsequent OpenGL calls should affect this texture.
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureHandle[0]);
-        // Set filtering
-        // Texture value used for minification.
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST);
-        // Texture value used for magnification.
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST);
+        for (int i = 0; i < resourceIds.length; i++) {
+            bitmap = BitmapFactory.decodeResource(appContext.getResources(), resourceIds[i], options);
 
-        // Load the bitmap into the bound texture.
-        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0);
+            // Bind to texture in OpenGL. Binding to a texture tells OpenGL that subsequent OpenGL calls should affect this texture.
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureHandle[i]);
+            // Set filtering
+            // Texture value used for minification.
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+            // Texture value used for magnification.
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
 
-        // Recycle the bitmap, since its data has been loaded into OpenGL.
-        bitmap.recycle();
+            // Load the bitmap into the bound texture.
+            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0);
 
-        return textureHandle[0];
+            // Recycle the bitmap, since its data has been loaded into OpenGL.
+            bitmap.recycle();
+        }
+
+        return textureHandle;
     }
 }

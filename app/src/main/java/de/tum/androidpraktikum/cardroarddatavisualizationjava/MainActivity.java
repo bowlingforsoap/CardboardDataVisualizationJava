@@ -81,7 +81,6 @@ public class MainActivity extends GvrActivity {
 
         setGvrView(gvrView);
 
-        // TODO: schedule this!
         // Retrieve data from server
         //
         timer = new Timer();

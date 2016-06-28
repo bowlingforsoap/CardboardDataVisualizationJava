@@ -4,7 +4,6 @@ import android.opengl.GLES20;
 import android.opengl.Matrix;
 import android.os.SystemClock;
 import android.util.Log;
-import android.view.Gravity;
 import android.widget.Toast;
 
 import com.google.vr.sdk.base.Eye;
@@ -18,7 +17,6 @@ import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 
 import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.opengles.GL;
 
 import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.Model;
 import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.Unit;
@@ -54,25 +52,30 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     private Toast toast;
 
     /**
-     * Number of brewery units to render. Does not necessarily corresponds to the number of the 3D models.
+     * Number of brewery units to render. Does not necessarily corresponds to the number of the 3D breweryModels.
      */
     public static final int NUM_OF_UNITS = 6;
 
     /**
-     * Storage for model data.
+     * Storage for brewery model data.
      */
-    private Unit[] modelData = new Unit[NUM_OF_UNITS];
-    /**
-     * Storage for models.
-     */
-    private Model[] models = new Model[3];
+    private Unit[] breweryModelsData = new Unit[NUM_OF_UNITS];
 
     {
         for (int i = 0; i < NUM_OF_UNITS; i++) {
-            modelData[i] = new Unit();
+            breweryModelsData[i] = new Unit();
             stepNum[i] = 1;
         }
     }
+
+    /**
+     * Storage for brewery breweryModels.
+     */
+    private Model[] breweryModels = new Model[3];
+    /**
+     * Storage for the floor model.
+     */
+    private Model floorModel;
 
     // Center of screen to be re-projected in model space.
     private float[] center = new float[4];
@@ -84,10 +87,10 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     /**
      * Far clipping plane.
      */
-    private float FAR = 30.0f;
+    private float FAR = 40.0f;
 
     /**
-     * Store the model matrix. This matrix is used to move models from object space (where each model can be thought
+     * Store the model matrix. This matrix is used to move breweryModels from object space (where each model can be thought
      * of being located at the center of the universe) to world space.
      */
     private float[][] modelMatrix = new float[NUM_OF_UNITS][16];
@@ -105,14 +108,10 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      */
     private float[] mLightModelMatrix = new float[16];
 
-    /**
-     * Store our model data in a float buffer.
-     */
-    /*private final FloatBuffer mAgingVesselPositions;
-    private final FloatBuffer mAgingVesselNormals;
-    private final FloatBuffer mAgingVesselTextureCoordinates;*/
-            //TODO: add description
+    //Store our model data in a float buffer.
+    //TODO: add description
     private final FloatBuffer[] breweryModelsBuffers = new FloatBuffer[9];
+    private final FloatBuffer[] floorModelBuffers = new FloatBuffer[3];
 
     /**
      * This will be used to pass in the transformation matrix.
@@ -132,7 +131,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      */
     private int floorTilesHeightmapDataHandle;
     /**
-     * Handle to the texture data of brewery models.
+     * Handle to the texture data of brewery breweryModels.
      */
     private int breweryModelsTextureDataHandle;
     /**
@@ -196,7 +195,6 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      */
     private final int textureDataSize = 2;
 
-
     /**
      * Used to hold a light centered on the origin in model space. We need a 4th coordinate so we can get translations to work when
      * we multiply this by our transformation matrices.
@@ -232,48 +230,19 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         // The toast to show model data.
         toast = Toast.makeText(this.mainActivity, "", Toast.LENGTH_SHORT);
 
-        // Initialize 3D models.
-        models[0] = new Model(mainActivity, R.raw.aging_vessel);
-        models[1] = new Model(mainActivity, R.raw.brewkettle);
-        models[2] = new Model(mainActivity, R.raw.bright_beer_vessel);
+        // Initialize 3D breweryModels.
+        // Brewery breweryModels.
+        breweryModels[0] = new Model(mainActivity, R.raw.aging_vessel);
+        breweryModels[1] = new Model(mainActivity, R.raw.brewkettle);
+        breweryModels[2] = new Model(mainActivity, R.raw.bright_beer_vessel);
+        // Floor.
+        floorModel = new Model(mainActivity, R.raw.floor);
 
-        // Initialize the aging vessel buffers.
-        // Positions.
-        breweryModelsBuffers[0] = ByteBuffer.allocateDirect(models[0].getPositions().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
-        breweryModelsBuffers[0].put(models[0].getPositions()).position(0);
-        // Normals.
-        breweryModelsBuffers[1] = ByteBuffer.allocateDirect(models[0].getNormals().length * mBytesPerFloat)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        breweryModelsBuffers[1].put(models[0].getNormals()).position(0);
-        // Texels.
-        breweryModelsBuffers[2] = ByteBuffer.allocateDirect(models[0].getTexels().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
-        breweryModelsBuffers[2].put(models[0].getTexels()).position(0);
+        // Fill brewery model's buffers.
+        fillBuffers(breweryModelsBuffers, breweryModels);
 
-        // Initialize the brewkettle buffers.
-        // getPositions().
-        breweryModelsBuffers[3] = ByteBuffer.allocateDirect(models[1].getPositions().length * mBytesPerFloat)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        breweryModelsBuffers[3].put(models[1].getPositions()).position(0);
-        // Normals.
-        breweryModelsBuffers[4] = ByteBuffer.allocateDirect(models[1].getNormals().length * mBytesPerFloat)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        breweryModelsBuffers[4].put(models[1].getNormals()).position(0);
-        // Texels.
-        breweryModelsBuffers[5] = ByteBuffer.allocateDirect(models[1].getTexels().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
-        breweryModelsBuffers[5].put(models[1].getTexels()).position(0);
-
-        // Initialize the bright beer vessel buffers.
-        // Positions.
-        breweryModelsBuffers[6] = ByteBuffer.allocateDirect(models[2].getPositions().length * mBytesPerFloat)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        breweryModelsBuffers[6].put(models[2].getPositions()).position(0);
-        // Normals.
-        breweryModelsBuffers[7] = ByteBuffer.allocateDirect(models[2].getNormals().length * mBytesPerFloat)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        breweryModelsBuffers[7].put(models[2].getNormals()).position(0);
-        // Texels.
-        breweryModelsBuffers[8] = ByteBuffer.allocateDirect(models[2].getTexels().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
-        breweryModelsBuffers[8].put(models[2].getTexels()).position(0);
+        // Fill the floor model's buffers.
+        fillBuffers(floorModelBuffers, floorModel);
     }
 
     @Override
@@ -329,9 +298,10 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
                 new String[]{"a_Position"});
 
         // Load handles for the texture bitmaps.
-        floorTilesTextureDataHandle = AssetLoader.loadTexture(mainActivity, R.drawable.floor_tiles_texture);
-        floorTilesHeightmapDataHandle = AssetLoader.loadTexture(mainActivity, R.drawable.floor_tiles_texture);
-        breweryModelsTextureDataHandle = AssetLoader.loadTexture(mainActivity, R.drawable.brewery_models_texture);
+        int[] textureDataHandles = AssetLoader.loadTextures(mainActivity, R.drawable.floor_tiles_texture, R.drawable.floor_tiles_heightmap, R.drawable.brewery_models_texture);
+        floorTilesTextureDataHandle = textureDataHandles[0];
+        floorTilesHeightmapDataHandle = textureDataHandles[1];
+        breweryModelsTextureDataHandle = textureDataHandles[2];
     }
 
     @Override
@@ -345,6 +315,10 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
     @Override
     public void onNewFrame(HeadTransform headTransform) {
+        /*
+        // Determine the model user is looking at.
+        //
+
         // TODO: maybe, move in a separate method.
         // Gonna be used to determine the angle.
         float[] vecStraight = {0.f, 0.f, 1.f, 1.f};
@@ -374,11 +348,11 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         mainActivity.runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                toast.setText(modelData[modelNum].toString());
+                toast.setText(breweryModelsData[modelNum].toString());
                 toast.setGravity(Gravity.LEFT, 0, 0);
                 toast.show();
             }
-        });
+        });*/
 
         // Do a complete rotation every 10 seconds.
         long time = SystemClock.uptimeMillis() % 10000L;
@@ -399,20 +373,24 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
         // Calculate position of the light. Rotate and then push into the distance.
         Matrix.setIdentityM(mLightModelMatrix, 0);
-        //Matrix.translateM(mLightModelMatrix, 0, 0.0f, 0.0f, 0.0f);
+        Matrix.translateM(mLightModelMatrix, 0, 0.0f, 10.0f, 0.0f);
         //Matrix.rotateM(mLightModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
         //Matrix.translateM(mLightModelMatrix, 0, 0.0f, 0.0f, 2.0f);
 
         Matrix.multiplyMV(mLightPosInWorldSpace, 0, mLightModelMatrix, 0, mLightPosInModelSpace, 0);
 
-        // Draw some cubes.
-
-        // Initiate view matrices for all models with an identity.
+        // Draw the models.
+        float displacementAngle = 360.f / NUM_OF_UNITS;
         for (int i = 0; i < NUM_OF_UNITS; i++) {
             Matrix.setIdentityM(modelMatrix[i], 0);
+            Matrix.rotateM(modelMatrix[i], 0, displacementAngle * i, 0.0f, 1.0f, 0.0f);
+            Matrix.translateM(modelMatrix[i], 0, 0.0f, -5.f, -15.0f);
+            // Rotate the breweryModels.
+            Matrix.rotateM(modelMatrix[i], 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
         }
 
-        // Unit 1
+        /*// Unit 1
+        Matrix.rotateM(modelMatrix[0], 0, 60, 0.0f, 1.0f, 0.0f);
         Matrix.translateM(modelMatrix[0], 0, 0.0f, -10.0f, -20.0f);
 
         // Unit 2
@@ -433,12 +411,8 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
         // Unit 6
         Matrix.rotateM(modelMatrix[5], 0, 300, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(modelMatrix[5], 0, 0.0f, -10.0f, -20.0f);
+        Matrix.translateM(modelMatrix[5], 0, 0.0f, -10.0f, -20.0f);*/
 
-        // Rotate the models.
-        for (int i = 0; i < NUM_OF_UNITS; i++) {
-            Matrix.rotateM(modelMatrix[i], 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
-        }
     }
 
     @Override
@@ -463,8 +437,30 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
         for (int i = 0; i < NUM_OF_UNITS; i++) {
             // Draw all the units.
-            // TODO: may need some tweaking, if the modelData remains the same, but has to be used for a lot 3D models
-            drawModel(i, mEyeViewMatrix, mEyeProjectionMatrix, breweryModelsBuffers[(i * 3) % 9], breweryModelsBuffers[(i * 3 + 1) % 9], breweryModelsBuffers[(i * 3 + 2) % 9], models[i % 3].getHighest()[1], models[i % 3].getLowest()[1], modelData[i].level, models[i % 3].getModelInfo().getVertices(), interpolateColors(currColor[i], newColor[i], 0), breweryModelsTextureDataHandle, GLES20.GL_TEXTURE0);
+            // TODO: may need some tweaking, if the breweryModelsData remains the same, but has to be used for a lot 3D breweryModels
+            drawModel(modelMatrix[i], mEyeViewMatrix, mEyeProjectionMatrix, // matrices
+                    breweryModelsBuffers[(i * 3) % 9], breweryModelsBuffers[(i * 3 + 1) % 9], breweryModelsBuffers[(i * 3 + 2) % 9], // model buffers
+                    breweryModels[i % 3].getHighest()[1], breweryModels[i % 3].getLowest()[1], // lowest/highest
+                    breweryModelsData[i].level, breweryModels[i % 3].getModelInfo().getVertices(), interpolateColors(currColor[i], newColor[i], 0),
+                    breweryModelsTextureDataHandle); // textures
+        }
+
+        // Floor.
+        // TODO: move to global scope.
+        // TODO: scale dat bitch
+        float[] floorModelMatrix = new float[16];
+        Matrix.setIdentityM(floorModelMatrix, 0);
+        Matrix.translateM(floorModelMatrix, 0, 0.f, -5.f, 0.f);
+        Matrix.scaleM(floorModelMatrix, 0, 2.f, 2.f, 2.f);
+        drawModel(floorModelMatrix, mEyeViewMatrix, mEyeProjectionMatrix, floorModelBuffers[0], floorModelBuffers[1], floorModelBuffers[2], floorModel.getHighest()[1], floorModel.getLowest()[1], 0, floorModel.getModelInfo().getVertices(), new float[]{.1f, .1f, .7f, 1.f}, floorTilesTextureDataHandle);
+
+        // Walls.
+        for (int i = 0; i < 4; i++) {
+            Matrix.setIdentityM(floorModelMatrix, 0);
+            Matrix.translateM(floorModelMatrix, 0, 20.f * (-1 + (i % 2) * 2) * (1 - i / 2), -5.f, 20.f * (-1 + (i % 2) * 2) * (i / 2));
+            Matrix.rotateM(floorModelMatrix, 0, 90.f, 1.f * (i / 2), 0.f, 1.f * (1 - i /2));
+            //Matrix.scaleM(floorModelMatrix, 0, 0.f, .5f, 0.f);
+            drawModel(floorModelMatrix, mEyeViewMatrix, mEyeProjectionMatrix, floorModelBuffers[0], floorModelBuffers[1], floorModelBuffers[2], floorModel.getHighest()[1], floorModel.getLowest()[1], 0, floorModel.getModelInfo().getVertices(), new float[]{.1f, .1f, .7f, 1.f}, floorTilesTextureDataHandle);
         }
 
         // Draw a point to indicate the light.
@@ -483,21 +479,47 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     }
 
     /**
+     * Fills the given {@code buffers} with the data from {@code models}.
+     *
+     * @param buffers
+     * @param models
+     */
+    private void fillBuffers(FloatBuffer[] buffers, Model... models) {
+        // Check the lengths.
+        if (buffers.length != models.length * 3) {
+            throw new RuntimeException("Buffers have insufficient capacity!");
+        }
+
+        // Fill the buffers.
+        for (int i = 0; i < models.length; i++) {
+            // Positions.
+            buffers[i * 3] = ByteBuffer.allocateDirect(models[i].getPositions().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
+            buffers[i * 3].put(models[i].getPositions()).position(0);
+            // Normals.
+            buffers[i * 3 + 1] = ByteBuffer.allocateDirect(models[i].getNormals().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
+            buffers[i * 3 + 1].put(models[i].getNormals()).position(0);
+            // Texels.
+            buffers[i * 3 + 2] = ByteBuffer.allocateDirect(models[i].getTexels().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
+            buffers[i * 3 + 2].put(models[i].getTexels()).position(0);
+        }
+    }
+
+    /**
      * Draws a model given by it's {@code positions}, {@code normals} FloatBuffer-s and a float array containing the color.
      * Preserves the {@code lowestY} and {@code highestY} values.
      *
-     * @param modelNum             the number of model to render (aka the number of the model matrix to apply)
+     * @param modelMatrix         the number of the model matrix to apply
      * @param eyeViewMatrix
      * @param eyeProjectionMatrix
      * @param positions
      * @param normals
      * @param highestY
      * @param lowestY
-     * @param fillLevel            [0; 1]
+     * @param fillLevel           [0; 1]
      * @param numVertices
      * @param color
      */
-    private void drawModel(int modelNum, float[] eyeViewMatrix, float[] eyeProjectionMatrix, FloatBuffer positions, FloatBuffer normals, FloatBuffer texels, float highestY, float lowestY, float fillLevel, int numVertices, float[] color, int textureDataHandle, int glTextureNumber) {
+    private void drawModel(float[] modelMatrix, float[] eyeViewMatrix, float[] eyeProjectionMatrix, FloatBuffer positions, FloatBuffer normals, FloatBuffer texels, float highestY, float lowestY, float fillLevel, int numVertices, float[] color, int textureDataHandle) {
         // Check the given color array
         if (color == null || color.length != 4) {
             throw new RuntimeException("Bad color array format! Expecting 4 values..");
@@ -524,7 +546,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
         // Pass in the texture itself (sampler).
         // Set the active texture unit to texture unit 0.
-        GLES20.glActiveTexture(glTextureNumber);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         // Bind the texture to this unit.
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureDataHandle);
         // Tell the texture uniform sampler to use this texture in the shader by binding to texture unit 0.
@@ -540,7 +562,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         //
         // This multiplies the view matrix by the model matrix, and stores the result in the MVP matrix
         // (which currently contains model * view).
-        Matrix.multiplyMM(mvpMatrix, 0, eyeViewMatrix, 0, modelMatrix[modelNum], 0);
+        Matrix.multiplyMM(mvpMatrix, 0, eyeViewMatrix, 0, modelMatrix, 0);
 
         // Pass in the modelview matrix.
         GLES20.glUniformMatrix4fv(mvMatrixHandle, 1, false, mvpMatrix, 0);
@@ -671,7 +693,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
 
     /**
-     * Update current {@code modelData} with the new {@code modelData}. Sets stepNum to 1.
+     * Update current {@code breweryModelsData} with the new {@code breweryModelsData}. Sets stepNum to 1.
      *
      * @param newModelData
      */
@@ -681,13 +703,13 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         }
 
         // Update the model data.
-        modelData = newModelData;
+        breweryModelsData = newModelData;
 
         for (int i = 0; i < NUM_OF_UNITS; i++) {
-            // Remap modelData to [0, 1] range
-            modelData[i].level /= 100;
+            // Remap breweryModelsData to [0, 1] range
+            breweryModelsData[i].level /= 100;
             // Update the colors for rendering.
-            newColor[i] = getColorFromTemperature(modelData[i].temperature);
+            newColor[i] = getColorFromTemperature(breweryModelsData[i].temperature);
             // Update the current interpolation step number.
             stepNum[i] = 1;
         }

@@ -27,7 +27,7 @@ void main() {        	            // The entry point for our vertex shader.
         v_Color = a_Color;
     } else {
         // Else -> paint dark gray.
-        v_Color = vec4(0.7, 0.7, 0.7, 1.0);
+        v_Color = vec4(.5, .5, .5, 1.0);
     }
 
     // Pass through the texture coordinates.

@@ -202,8 +202,8 @@ public class Model {
 
             for (int j = 0; j < 2; j++) {
                 this.texels[index + j] =  texels[vtA][j];
-                this.texels[index + j] =  texels[vtB][j];
-                this.texels[index + j] =  texels[vtC][j];
+                this.texels[index + 2 + j] =  texels[vtB][j];
+                this.texels[index + 4 + j] =  texels[vtC][j];
             }
 
             index += 6;
