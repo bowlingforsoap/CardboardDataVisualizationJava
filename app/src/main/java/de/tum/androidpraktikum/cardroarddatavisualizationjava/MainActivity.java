@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.util.Log;
 
 import com.google.gson.Gson;
+import com.google.vr.sdk.audio.GvrAudioEngine;
 import com.google.vr.sdk.base.GvrActivity;
 import com.google.vr.sdk.base.GvrView;
 
@@ -38,6 +39,13 @@ public class MainActivity extends GvrActivity {
      * StereoRenderer used in the main activity.
      */
     private CardboardRenderer cardboardRenderer;
+
+    /**
+     *
+     */
+    private GvrAudioEngine gvrAudioEngine;
+    public static final String SOUND_FILE = "bubbling.mp3";
+    private int soundId = GvrAudioEngine.INVALID_ID;
     /**
      * This timer is used to schedule JSON data retrieval.
      */
@@ -66,6 +74,18 @@ public class MainActivity extends GvrActivity {
         final ActivityManager activityManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         final ConfigurationInfo configurationInfo = activityManager.getDeviceConfigurationInfo();
         final boolean supportsEs2 = configurationInfo.reqGlEsVersion >= 0x20000;
+
+        // Setup spacial audio.
+        gvrAudioEngine = new GvrAudioEngine(this, GvrAudioEngine.RenderingMode.BINAURAL_HIGH_QUALITY);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                gvrAudioEngine.preloadSoundFile(SOUND_FILE);
+                soundId = gvrAudioEngine.createSoundObject(SOUND_FILE);
+                gvrAudioEngine.setSoundObjectPosition(soundId, 0.f, 0.f, 0.f);
+                gvrAudioEngine.playSound(soundId, true);
+            }
+        }).start();
 
         if (supportsEs2) {
             // Request an OpenGL ES 2.0 compatible context.
@@ -104,11 +124,25 @@ public class MainActivity extends GvrActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        gvrAudioEngine.pause();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        gvrAudioEngine.resume();
+    }
+
+    public int getSoundId() {
+        return soundId;
+    }
+
+    public void setSoundId(int soundId) {
+        this.soundId = soundId;
+    }
+
+    public GvrAudioEngine getGvrAudioEngine() {
+        return gvrAudioEngine;
     }
 
     private class DataRetriever extends AsyncTask<String, Void, String> {

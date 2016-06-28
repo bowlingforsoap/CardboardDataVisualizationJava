@@ -6,6 +6,7 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.widget.Toast;
 
+import com.google.vr.sdk.audio.GvrAudioEngine;
 import com.google.vr.sdk.base.Eye;
 import com.google.vr.sdk.base.GvrActivity;
 import com.google.vr.sdk.base.GvrView;
@@ -44,7 +45,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      * The color before the latest retrieval per model.
      */
     private float[][] currColor = new float[NUM_OF_UNITS][4];
-    private final GvrActivity mainActivity;
+    private final MainActivity mainActivity;
 
     /**
      * Shows the model data.
@@ -224,7 +225,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     /**
      * Initialize the model data.
      */
-    public CardboardRenderer(GvrActivity mainActivity) {
+    public CardboardRenderer(final MainActivity mainActivity) {
         // Store the application context for shader retrieval.
         this.mainActivity = mainActivity;
         // The toast to show model data.
@@ -353,6 +354,9 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
                 toast.show();
             }
         });*/
+
+        // Update sound.
+        mainActivity.getGvrAudioEngine().update();
 
         // Do a complete rotation every 10 seconds.
         long time = SystemClock.uptimeMillis() % 10000L;

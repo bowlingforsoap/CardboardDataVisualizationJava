@@ -26,4 +26,5 @@ dependencies {
     compile 'com.google.code.gson:gson:2.6.2'
     compile project(':base')
     compile project(':common')
+    compile project(':audio')
 }
