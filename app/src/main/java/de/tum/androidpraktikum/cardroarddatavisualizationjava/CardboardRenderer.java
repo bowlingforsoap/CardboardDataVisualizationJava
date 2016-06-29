@@ -4,6 +4,8 @@ import android.opengl.GLES20;
 import android.opengl.Matrix;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.Gravity;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.vr.sdk.base.Eye;
@@ -61,6 +63,11 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      * Storage for brewery model data.
      */
     private Unit[] breweryModelsData = new Unit[NUM_OF_UNITS];
+
+    /**
+     * Determines whether to show the model info or not.
+     */
+    private boolean showInfo = true;
 
     {
         for (int i = 0; i < NUM_OF_UNITS; i++) {
@@ -344,44 +351,9 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
     @Override
     public void onNewFrame(HeadTransform headTransform) {
-        /*
-        // Determine the model user is looking at.
-        //
-
-        // TODO: maybe, move in a separate method.
-        // Gonna be used to determine the angle.
-        float[] vecStraight = {0.f, 0.f, 1.f, 1.f};
-        // Used to determined where the user is looking.
-        float[] center = new float[]{0.f, 0.f, 0.f, 1.f};
-        float[] centerInHeadViewSpace = new float[4];
-        // TODO: play with mViewMatrix, maybe add a global camera matrix and re-init here
-        float[] headViewMatrix = new float[16];
-        Matrix.multiplyMM(headViewMatrix, 0, headTransform.getHeadView(), 0, mViewMatrix, 0);
-        Matrix.multiplyMV(centerInHeadViewSpace, 0, headViewMatrix, 0, center, 0);
-
-        // Normalize the Z component of the center of the view.
-        // Take Y component as 0 to project on ZX plane.
-        float lengthCenterInHeadViewSpace = Matrix.length(centerInHeadViewSpace[0], centerInHeadViewSpace[1] * 0, centerInHeadViewSpace[2]);
-        centerInHeadViewSpace[2] = centerInHeadViewSpace[2] / lengthCenterInHeadViewSpace;
-        // Calculate the dot product. Only Z component is non-zero in vecStraight.
-        float dot = centerInHeadViewSpace[2] * vecStraight[2];
-        float angle = (float) ((Math.acos(dot) / Math.PI) * 180);
-        // If in the bottom half of the unit circle -> result is (360 - angle).
-        if (centerInHeadViewSpace[0] > 0) {
-            angle = 360 - angle;
+        if (showInfo) {
+            showInfo(headTransform);
         }
-
-        final short modelNum = getModelNum(angle);
-
-        // Show the info Toast with the model data.
-        mainActivity.runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                toast.setText(breweryModelsData[modelNum].toString());
-                toast.setGravity(Gravity.LEFT, 0, 0);
-                toast.show();
-            }
-        });*/
 
         // Update sound.
         mainActivity.getGvrAudioEngine().update();
@@ -492,6 +464,53 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     @Override
     public void onRendererShutdown() {
         Log.i(TAG, "onRendererShutdown");
+    }
+
+    /**
+     * Shows the info about the model, which the user observes.
+     * @param headTransform
+     */
+    private void showInfo(HeadTransform headTransform) {
+        // Determine the model user is looking at.
+        //
+        // TODO: maybe, move in a separate method.
+        // Gonna be used to determine the angle.
+        float[] vecStraight = {0.f, 0.f, 1.f, 1.f};
+        // Used to determined where the user is looking.
+        float[] center = new float[]{0.f, 0.f, 0.f, 1.f};
+        float[] centerInHeadViewSpace = new float[4];
+        // TODO: play with mViewMatrix, maybe add a global camera matrix and re-init here
+        float[] headViewMatrix = new float[16];
+        Matrix.multiplyMM(headViewMatrix, 0, headTransform.getHeadView(), 0, mViewMatrix, 0);
+        Matrix.multiplyMV(centerInHeadViewSpace, 0, headViewMatrix, 0, center, 0);
+
+        // Normalize the Z component of the center of the view.
+        // Take Y component as 0 to project on ZX plane.
+        float lengthCenterInHeadViewSpace = Matrix.length(centerInHeadViewSpace[0], centerInHeadViewSpace[1] * 0, centerInHeadViewSpace[2]);
+        centerInHeadViewSpace[2] = centerInHeadViewSpace[2] / lengthCenterInHeadViewSpace;
+        // Calculate the dot product. Only Z component is non-zero in vecStraight.
+        float dot = centerInHeadViewSpace[2] * vecStraight[2];
+        float angle = (float) ((Math.acos(dot) / Math.PI) * 180);
+        // If in the bottom half of the unit circle -> result is (360 - angle).
+        if (centerInHeadViewSpace[0] > 0) {
+            angle = 360 - angle;
+        }
+
+        final short modelNum = getModelNum(angle);
+
+        // Show the info Toast with the model data.
+        mainActivity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                toast.setText(breweryModelsData[modelNum].toString());
+                toast.setGravity(Gravity.LEFT, 0, 0);
+                toast.show();
+            }
+        });
+
+        // Show the info in the text view.
+        //TextView info = (TextView) mainActivity.findViewById(R.id.info);
+        //info.setText(breweryModelsData[modelNum].toString());
     }
 
     /**
@@ -866,5 +885,13 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         modelNum = (short) (modelNum % 6);
 
         return modelNum;
+    }
+
+    public boolean isShowInfo() {
+        return showInfo;
+    }
+
+    public void setShowInfo(boolean showInfo) {
+        this.showInfo = showInfo;
     }
 }

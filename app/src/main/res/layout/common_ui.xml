@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/ui_layout"
     android:orientation="vertical"
     android:layout_width="fill_parent"
@@ -13,4 +13,12 @@
         android:layout_alignParentTop="true"
         android:layout_alignParentLeft="true" />
 
-</RelativeLayout>
+    <TextView
+        android:id="@+id/info"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:text="Info: ---"
+        android:layout_gravity="left|center"
+        android:paddingLeft="10dp"/>
+
+</FrameLayout>

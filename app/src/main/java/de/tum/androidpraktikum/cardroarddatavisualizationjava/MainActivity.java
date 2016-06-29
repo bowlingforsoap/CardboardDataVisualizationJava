@@ -8,6 +8,7 @@ import android.net.NetworkInfo;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.MotionEvent;
 
 import com.google.gson.Gson;
 import com.google.vr.sdk.audio.GvrAudioEngine;
@@ -50,6 +51,12 @@ public class MainActivity extends GvrActivity {
      * This timer is used to schedule JSON data retrieval.
      */
     private Timer timer;
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        cardboardRenderer.setShowInfo(!cardboardRenderer.isShowInfo());
+        return super.onTouchEvent(event);
+    }
 
     //TODO: remove title bar
     @Override
