@@ -23,7 +23,7 @@ void main()                    		// The entry point for our fragment shader.
     float diffuse = max(dot(v_Normal, vecToLight), 0.1);
     // Add attenuation.
     diffuse = diffuse * (1.0 / (1.0 + (0.10 * distance)));
-    diffuse += 0.3;
+    diffuse += 0.6;
     //diffuse = diffuse * (1.0 / (1.0 + (0.01 * distance)));
     // Multiply the color by the diffuse illumination level to get final output color.
     gl_FragColor = diffuse * v_Color * texture2D(u_Texture, v_TexCoordinate);     		// Pass the color directly through the pipeline.

@@ -6,9 +6,7 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.widget.Toast;
 
-import com.google.vr.sdk.audio.GvrAudioEngine;
 import com.google.vr.sdk.base.Eye;
-import com.google.vr.sdk.base.GvrActivity;
 import com.google.vr.sdk.base.GvrView;
 import com.google.vr.sdk.base.HeadTransform;
 import com.google.vr.sdk.base.Viewport;
@@ -20,7 +18,9 @@ import java.nio.FloatBuffer;
 import javax.microedition.khronos.egl.EGLConfig;
 
 import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.Model;
+import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.Skybox;
 import de.tum.androidpraktikum.cardroarddatavisualizationjava.models.Unit;
+import de.tum.androidpraktikum.cardroarddatavisualizationjava.shaders.SkyboxShaderProgram;
 
 /**
  * This class implements our custom renderer. Note that the GL10 parameter passed in is unused for OpenGL ES 2.0
@@ -77,6 +77,8 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      * Storage for the floor model.
      */
     private Model floorModel;
+    private Skybox skybox;
+
 
     // Center of screen to be re-projected in model space.
     private float[] center = new float[4];
@@ -139,6 +141,15 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      * This will be used to pass in the texture itself.
      */
     private int textureUniformHandle;
+
+    private SkyboxShaderProgram skyboxShaderProgram;
+    private int cubemapTextureDataHandle;
+    // Uniforms.
+    private int uMatrixLocation;
+    private int uTextureUnitLocation;
+    // Atributes.
+    private int aPostionLocation;
+
     /**
      * This will be used to pass in the light position.
      */
@@ -177,7 +188,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     /**
      * How many bytes per float.
      */
-    private final int mBytesPerFloat = 4;
+    public static final int BYTES_PER_FLOAT = 4;
 
     /**
      * Size of the position data in elements.
@@ -216,11 +227,14 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      * This is a handle to our per-vertex cube shading program.
      */
     private int perVertexProgramHandle;
-
     /**
      * This is a handle to our light point program.
      */
-    private int mPointProgramHandle;
+    private int pointProgramHandle;
+    /**
+     * This is a handle to our skybox program.
+     */
+    private int skyboxProgramHandle;
 
     /**
      * Initialize the model data.
@@ -238,6 +252,8 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         breweryModels[2] = new Model(mainActivity, R.raw.bright_beer_vessel);
         // Floor.
         floorModel = new Model(mainActivity, R.raw.floor);
+        // Skybox.
+        skybox = new Skybox();
 
         // Fill brewery model's buffers.
         fillBuffers(breweryModelsBuffers, breweryModels);
@@ -281,7 +297,6 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
 
         final String vertexShader = AssetLoader.loadShader(mainActivity, AssetLoader.VERTEX_SHADER);
         final String fragmentShader = AssetLoader.loadShader(mainActivity, AssetLoader.FRAGMENT_SHADER);
-
         final int vertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, vertexShader);
         final int fragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentShader);
 
@@ -291,18 +306,31 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         // Define a simple shader program for our point.
         final String pointVertexShader = AssetLoader.loadShader(mainActivity, AssetLoader.LIGHT_VERTEX_SHADER);
         final String pointFragmentShader = AssetLoader.loadShader(mainActivity, AssetLoader.LIGHT_FRAGMENT_SHADER);
-
         final int pointVertexShaderHandle = compileShader(GLES20.GL_VERTEX_SHADER, pointVertexShader);
         final int pointFragmentShaderHandle = compileShader(GLES20.GL_FRAGMENT_SHADER, pointFragmentShader);
 
-        mPointProgramHandle = createAndLinkProgram(pointVertexShaderHandle, pointFragmentShaderHandle,
+        pointProgramHandle = createAndLinkProgram(pointVertexShaderHandle, pointFragmentShaderHandle,
                 new String[]{"a_Position"});
+
+        // Skybox shader.
+        /*final String skyboxVertexShader = AssetLoader.loadShader(mainActivity, AssetLoader.SKYBOX_VERTEX_SHADER);
+        final String skyboxFragmentShader = AssetLoader.loadShader(mainActivity, AssetLoader.SKYBOX_FRAGMENT_SHADER);
+        final int skyboxVertexShaderHandle =compileShader(GLES20.GL_VERTEX_SHADER, skyboxVertexShader);
+        final int skyboxFragmentShaderHandle =compileShader(GLES20.GL_FRAGMENT_SHADER, skyboxFragmentShader);
+
+        skyboxProgramHandle = createAndLinkProgram(skyboxVertexShaderHandle, skyboxFragmentShaderHandle, new String[] { "a_Position" });*/
+        skyboxShaderProgram = new SkyboxShaderProgram(mainActivity);
+        skybox = new Skybox();
 
         // Load handles for the texture bitmaps.
         int[] textureDataHandles = AssetLoader.loadTextures(mainActivity, R.drawable.floor_tiles_texture, R.drawable.floor_tiles_heightmap, R.drawable.brewery_models_texture);
         floorTilesTextureDataHandle = textureDataHandles[0];
         floorTilesHeightmapDataHandle = textureDataHandles[1];
         breweryModelsTextureDataHandle = textureDataHandles[2];
+
+        // Load a handle for the skybox cubemap.
+        cubemapTextureDataHandle = AssetLoader.loadCubeMap(mainActivity, R.drawable.sky_afternoon_left, R.drawable.sky_afternoon_right, R.drawable.sky_afternoon_bottom, R.drawable.sky_afternoon_top, R.drawable.sky_afternoon_front
+                , R.drawable.sky_afternoon_back);
     }
 
     @Override
@@ -370,14 +398,20 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         highestYUniformHandle = GLES20.glGetUniformLocation(perVertexProgramHandle, "u_HighestY");
         lowestYUniformHandle = GLES20.glGetUniformLocation(perVertexProgramHandle, "u_LowestY");
         fillLevel = GLES20.glGetUniformLocation(perVertexProgramHandle, "u_FillLevel");
+
         texCoordinateHandle = GLES20.glGetAttribLocation(perVertexProgramHandle, "a_TexCoordinate");
         positionHandle = GLES20.glGetAttribLocation(perVertexProgramHandle, "a_Position");
         colorHandle = GLES20.glGetAttribLocation(perVertexProgramHandle, "a_Color");
         normalHandle = GLES20.glGetAttribLocation(perVertexProgramHandle, "a_Normal");
 
+        // Set program handles for skybox
+        uMatrixLocation = GLES20.glGetUniformLocation(skyboxProgramHandle, "u_Matrix");
+        uTextureUnitLocation = GLES20.glGetUniformLocation(skyboxProgramHandle, "u_TextureUnit");
+        aPostionLocation = GLES20.glGetAttribLocation(skyboxProgramHandle, "a_Position");
+
         // Calculate position of the light. Rotate and then push into the distance.
         Matrix.setIdentityM(mLightModelMatrix, 0);
-        Matrix.translateM(mLightModelMatrix, 0, 0.0f, 10.0f, 0.0f);
+        Matrix.translateM(mLightModelMatrix, 0, -5.0f, 10.0f, 0.0f);
         //Matrix.rotateM(mLightModelMatrix, 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
         //Matrix.translateM(mLightModelMatrix, 0, 0.0f, 0.0f, 2.0f);
 
@@ -392,31 +426,6 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
             // Rotate the breweryModels.
             Matrix.rotateM(modelMatrix[i], 0, angleInDegrees, 0.0f, 1.0f, 0.0f);
         }
-
-        /*// Unit 1
-        Matrix.rotateM(modelMatrix[0], 0, 60, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(modelMatrix[0], 0, 0.0f, -10.0f, -20.0f);
-
-        // Unit 2
-        Matrix.rotateM(modelMatrix[1], 0, 60, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(modelMatrix[1], 0, 0.0f, -10.0f, -20.0f);
-
-        // Unit 3
-        Matrix.rotateM(modelMatrix[2], 0, 120, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(modelMatrix[2], 0, 0.0f, -10.0f, -20.0f);
-
-        // Unit 4
-        Matrix.rotateM(modelMatrix[3], 0, 180, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(modelMatrix[3], 0, 0.0f, -10.0f, -20.0f);
-
-        // Unit 5
-        Matrix.rotateM(modelMatrix[4], 0, 240, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(modelMatrix[4], 0, 0.0f, -10.0f, -20.0f);
-
-        // Unit 6
-        Matrix.rotateM(modelMatrix[5], 0, 300, 0.0f, 1.0f, 0.0f);
-        Matrix.translateM(modelMatrix[5], 0, 0.0f, -10.0f, -20.0f);*/
-
     }
 
     @Override
@@ -461,15 +470,18 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         // Walls.
         for (int i = 0; i < 4; i++) {
             Matrix.setIdentityM(floorModelMatrix, 0);
-            Matrix.translateM(floorModelMatrix, 0, 20.f * (-1 + (i % 2) * 2) * (1 - i / 2), -5.f, 20.f * (-1 + (i % 2) * 2) * (i / 2));
+            //Matrix.scaleM(floorModelMatrix, 0, 1.f, 1f, 0.5f);
+            Matrix.translateM(floorModelMatrix, 0, 20.f * (-1 + (i % 2) * 2) * (1 - i / 2), -25.f, 20.f * (-1 + (i % 2) * 2) * (i / 2));
             Matrix.rotateM(floorModelMatrix, 0, 90.f, 1.f * (i / 2), 0.f, 1.f * (1 - i /2));
-            //Matrix.scaleM(floorModelMatrix, 0, 0.f, .5f, 0.f);
             drawModel(floorModelMatrix, mEyeViewMatrix, mEyeProjectionMatrix, floorModelBuffers[0], floorModelBuffers[1], floorModelBuffers[2], floorModel.getHighest()[1], floorModel.getLowest()[1], 0, floorModel.getModelInfo().getVertices(), new float[]{.1f, .1f, .7f, 1.f}, floorTilesTextureDataHandle);
         }
 
         // Draw a point to indicate the light.
-        //GLES20.glUseProgram(mPointProgramHandle);
+        //GLES20.glUseProgram(pointProgramHandle);
         //drawLight(mEyeViewMatrix, mEyeProjectionMatrix);
+
+
+        drawSkybox(mEyeViewMatrix, mEyeProjectionMatrix);
     }
 
     @Override
@@ -497,13 +509,13 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         // Fill the buffers.
         for (int i = 0; i < models.length; i++) {
             // Positions.
-            buffers[i * 3] = ByteBuffer.allocateDirect(models[i].getPositions().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
+            buffers[i * 3] = ByteBuffer.allocateDirect(models[i].getPositions().length * BYTES_PER_FLOAT).order(ByteOrder.nativeOrder()).asFloatBuffer();
             buffers[i * 3].put(models[i].getPositions()).position(0);
             // Normals.
-            buffers[i * 3 + 1] = ByteBuffer.allocateDirect(models[i].getNormals().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
+            buffers[i * 3 + 1] = ByteBuffer.allocateDirect(models[i].getNormals().length * BYTES_PER_FLOAT).order(ByteOrder.nativeOrder()).asFloatBuffer();
             buffers[i * 3 + 1].put(models[i].getNormals()).position(0);
             // Texels.
-            buffers[i * 3 + 2] = ByteBuffer.allocateDirect(models[i].getTexels().length * mBytesPerFloat).order(ByteOrder.nativeOrder()).asFloatBuffer();
+            buffers[i * 3 + 2] = ByteBuffer.allocateDirect(models[i].getTexels().length * BYTES_PER_FLOAT).order(ByteOrder.nativeOrder()).asFloatBuffer();
             buffers[i * 3 + 2].put(models[i].getTexels()).position(0);
         }
     }
@@ -594,8 +606,8 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      * Draws a point representing the position of the light.
      */
     private void drawLight(float[] mEyeViewMatrix, float[] mEyeProjectionMatrix) {
-        final int pointMVPMatrixHandle = GLES20.glGetUniformLocation(mPointProgramHandle, "u_MVPMatrix");
-        final int pointPositionHandle = GLES20.glGetAttribLocation(mPointProgramHandle, "a_Position");
+        final int pointMVPMatrixHandle = GLES20.glGetUniformLocation(pointProgramHandle, "u_MVPMatrix");
+        final int pointPositionHandle = GLES20.glGetAttribLocation(pointProgramHandle, "a_Position");
 
         // Pass in the position.
         GLES20.glVertexAttrib3f(pointPositionHandle, mLightPosInModelSpace[0], mLightPosInModelSpace[1], mLightPosInModelSpace[2]);
@@ -611,6 +623,18 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         GLES20.glDrawArrays(GLES20.GL_POINTS, 0, 1);
     }
 
+    private void drawSkybox(float[] viewMatrix, float[] projectionMatrix) {
+        float[] viewProjectionMatrix = new float[16];
+        Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0);
+        skyboxShaderProgram.useProgram();
+
+        skyboxShaderProgram.setUniforms(viewProjectionMatrix, cubemapTextureDataHandle);
+
+        skybox.bindData(skyboxShaderProgram);
+
+        skybox.draw();
+    }
+
     /**
      * Helper function to compile a shader.
      *
@@ -618,7 +642,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      * @param shaderSource The shader source code.
      * @return An OpenGL handle to the shader.
      */
-    private int compileShader(final int shaderType, final String shaderSource) {
+    public static int compileShader(final int shaderType, final String shaderSource) {
         int shaderHandle = GLES20.glCreateShader(shaderType);
 
         if (shaderHandle != 0) {
@@ -655,7 +679,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
      * @param attributes           Attributes that need to be bound to the program.
      * @return An OpenGL handle to the program.
      */
-    private int createAndLinkProgram(final int vertexShaderHandle, final int fragmentShaderHandle, final String[] attributes) {
+    public static int createAndLinkProgram(final int vertexShaderHandle, final int fragmentShaderHandle, final String[] attributes) {
         int programHandle = GLES20.glCreateProgram();
 
         if (programHandle != 0) {
