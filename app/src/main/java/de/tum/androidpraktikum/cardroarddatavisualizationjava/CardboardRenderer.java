@@ -67,7 +67,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
     /**
      * Determines whether to show the model info or not.
      */
-    private boolean showInfo = true;
+    private boolean showInfo = false;
 
     {
         for (int i = 0; i < NUM_OF_UNITS; i++) {
@@ -442,7 +442,6 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         // Walls.
         for (int i = 0; i < 4; i++) {
             Matrix.setIdentityM(floorModelMatrix, 0);
-            //Matrix.scaleM(floorModelMatrix, 0, 1.f, 1f, 0.5f);
             Matrix.translateM(floorModelMatrix, 0, 20.f * (-1 + (i % 2) * 2) * (1 - i / 2), -25.f, 20.f * (-1 + (i % 2) * 2) * (i / 2));
             Matrix.rotateM(floorModelMatrix, 0, 90.f, 1.f * (i / 2), 0.f, 1.f * (1 - i /2));
             drawModel(floorModelMatrix, mEyeViewMatrix, mEyeProjectionMatrix, floorModelBuffers[0], floorModelBuffers[1], floorModelBuffers[2], floorModel.getHighest()[1], floorModel.getLowest()[1], 0, floorModel.getModelInfo().getVertices(), new float[]{.1f, .1f, .7f, 1.f}, floorTilesTextureDataHandle);
@@ -617,7 +616,7 @@ public class CardboardRenderer implements GvrView.StereoRenderer {
         GLES20.glUniform1f(lowestYUniformHandle, lowestY);
         GLES20.glUniform1f(this.fillLevel, fillLevel);
 
-        // Draw the cube.
+        // Draw the model.
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, numVertices);
     }
 
